@@ -21,8 +21,38 @@
 </form>
 
 <script>
-  document.getElementById('f').onsubmit = function (e) {
-    e.preventDefault();
-    alert('Ainda não ligámos ao backend – mas o frontend carrega!');
-  };
-</script>
+  (function () {
+    /* URL do Web App que copiaste há pouco */
+    var URL = "https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
+  
+    var form = document.getElementById('f');
+  
+    form.onsubmit = function (e) {
+      e.preventDefault();
+  
+      /* Recolhe os campos do formulário */
+      var data = {};
+      Array.prototype.forEach.call(form.elements, function (el) {
+        if (el.name) data[el.name] = el.value;
+      });
+  
+      /* Envia via XMLHttpRequest (Safari iOS 9 não tem fetch) */
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', URL, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+  
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) {
+            alert('Registo guardado!');
+            form.reset();
+          } else {
+            alert('Erro ao enviar: ' + xhr.status);
+          }
+        }
+      };
+  
+      xhr.send(JSON.stringify(data));
+    };
+  })();
+  </script>
