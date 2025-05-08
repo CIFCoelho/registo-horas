@@ -1,0 +1,30 @@
+cat > docs/index.html <<'EOF'
+<!doctype html>
+<meta charset="utf-8">
+<title>Registo de Horas</title>
+<style>
+  body{font-family:sans-serif;max-width:480px;margin:0 auto;padding:1rem}
+  label{display:block;margin-top:8px}
+  button{margin-top:12px;font-size:1.2rem;width:100%}
+</style>
+
+<form id="f">
+  <label>Funcionário <input name="funcionario" required></label>
+  <label>Secção
+    <select name="secao">
+      <option>Estufagem</option><option>Acabamentos</option>
+    </select>
+  </label>
+  <label>Nº O.F. <input name="of" required></label>
+  <label>Início <input name="inicio" type="time" required></label>
+  <label>Fim <input name="fim" type="time" required></label>
+  <button>Guardar</button>
+</form>
+
+<script>
+  document.getElementById('f').onsubmit = function (e) {
+    e.preventDefault();
+    alert('Ainda não ligámos ao backend – mas o frontend carrega!');
+  };
+</script>
+EOF
