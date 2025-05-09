@@ -22,24 +22,21 @@
 
 <script>
   (function () {
-    /* URL do Web App que copiaste há pouco */
-    var URL = "https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
+    var URL = "https://script.googleusercontent.com/macros/echo?user_content_key=AehSKLgfDU_eMr0Vg8NqkshmWr-WHCgDqj-fg2DO22wwMdgXg0xMKqDbj4LhjzBIu3d6srCoQccNVz6Jmrc0_anWUrFANaZ3afo_tZtQol-ffeIDkMizwsqA-ppmwwA5x0_3cI3mybJLKDtvRGSDEjx33Rs7GlCtJCMnni6Ju5Ce30MG5m3hwMVNrXSjenJ81Koy4tcEBYo81U8wmNx71acySuoKwkG4823DKYFoCGpgMJQLxhUG6_XLtC9VZxfe7ngjpo2bUrrQLRDXICK8QFpjmmG4b8Uq2w&amp;lib=MzkxSk9G8Fv3_XJRT0dpXtQFtd41vFbot";
   
     var form = document.getElementById('f');
   
     form.onsubmit = function (e) {
       e.preventDefault();
   
-      /* Recolhe os campos do formulário */
       var data = {};
       Array.prototype.forEach.call(form.elements, function (el) {
         if (el.name) data[el.name] = el.value;
       });
   
-      /* Envia via XMLHttpRequest (Safari iOS 9 não tem fetch) */
       var xhr = new XMLHttpRequest();
       xhr.open('POST', URL, true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.setRequestHeader('Content-Type', 'text/plain');
   
       xhr.onreadystatechange = function () {
         if (xhr.readyState === 4) {
