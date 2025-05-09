@@ -21,33 +21,41 @@
 </form>
 
 <script>
-  (function () {
-    var URL = "https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
   
-    var form = document.getElementById('f');
-  
-    form.onsubmit = function (e) {
-      e.preventDefault();
-  
-      var data = {};
-      Array.prototype.forEach.call(form.elements, function (el) {
-        if (el.name) data[el.name] = el.value;
-      });
-  
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', URL, true);
-      xhr.setRequestHeader('Content-Type', 'text/plain');
-  
-      xhr.onreadystatechange = function () {
-        if (xhr.readyState === 4) {
-          if (xhr.status === 200) {
-            alert('Registo guardado!');
-            form.reset();
-          } else {
-            alert('Erro ao enviar: ' + xhr.status);
-          }
-        }
-      };
+(function () {
+  var URL = "https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
+
+  var form = document.getElementById('f');
+
+  form.onsubmit = function (e) {
+    e.preventDefault();
+
+    var data = {};
+    Array.prototype.forEach.call(form.elements, function (el) {
+      if (el.name) data[el.name] = el.value;
+    });
+
+    fetch(URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain'
+      },
+      body: JSON.stringify(data),
+      redirect: 'follow' 
+    })
+    .then(response => {
+      if (response.ok) {
+        alert('Registo guardado!');
+        form.reset();
+      } else {
+        alert('Erro ao enviar: ' + response.status);
+      }
+    })
+    .catch(error => {
+      alert('Erro: ' + error);
+    });
+  };
+})();
   
       xhr.send(JSON.stringify(data));
     };
