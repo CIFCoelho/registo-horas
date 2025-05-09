@@ -1,58 +1,230 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Registo de Horas</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Registo de Secção</title>
 <style>
-  body{font-family:sans-serif;max-width:480px;margin:0 auto;padding:1rem}
-  label{display:block;margin-top:8px}
-  button{margin-top:12px;font-size:1.2rem;width:100%}
+  body {
+    font-family: sans-serif;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 1rem;
+    text-align: center;
+  }
+  .employee-button {
+    width: 90%;
+    height: 80px;
+    margin: 15px auto;
+    font-size: 24px;
+    border-radius: 10px;
+    background-color: #4285f4;
+    color: white;
+    border: none;
+  }
+  .status {
+    margin-top: 20px;
+    padding: 10px;
+    border-radius: 5px;
+    font-weight: bold;
+  }
+  .active {
+    background-color: #d4edda;
+    color: #155724;
+  }
 </style>
 
-<form id="f">
-  <label>Funcionário <input name="funcionario" required></label>
-  <label>Secção
-    <select name="secao">
-      <option>Estufagem</option><option>Acabamentos</option>
-    </select>
-  </label>
-  <label>Nº O.F. <input name="of" required></label>
-  <label>Início <input name="inicio" type="time" required></label>
-  <label>Fim <input name="fim" type="time" required></label>
-  <button>Guardar</button>
-</form>
+<h1>Registo de Secção</h1>
+<div id="employee-buttons">
+  <button class="employee-button" data-name="Antónia">Antónia</button>
+  <button class="employee-button" data-name="Diana">Diana</button>
+  <button class="employee-button" data-name="Teresa">Teresa</button>
+</div>
+<div id="status" class="status"></div>
 
 <script>
-(function () {
+(function() {
+  // URL do Google Apps Script
   var URL = "https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
-
-  var form = document.getElementById('f');
-
-  form.onsubmit = function (e) {
-    e.preventDefault();
-
-    var data = {};
-    Array.prototype.forEach.call(form.elements, function (el) {
-      if (el.name) data[el.name] = el.value;
-    });
-
-    fetch(URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain'
-      },
-      body: JSON.stringify(data),
-      redirect: 'follow' 
-    })
-    .then(response => {
-      if (response.ok) {
-        alert('Registo guardado!');
-        form.reset();
-      } else {
-        alert('Erro ao enviar: ' + response.status);
+  
+  // Referência aos elementos
+  var buttons = document.querySelectorAll('.employee-button');
+  var statusDiv = document.getElementById('status');
+  
+  // Períodos de pausa (formato 24h)
+  var breakPeriods = [
+    { start: '10:00', end: '10:10' },
+    { start: '12:00', end: '13:00' }
+  ];
+  
+  // Inicializar estado dos funcionários
+  var employees = {};
+  
+  // Carregar estado do localStorage
+  function loadState() {
+    var savedState = localStorage.getItem('employeeState');
+    if (savedState) {
+      employees = JSON.parse(savedState);
+    }
+  }
+  
+  // Salvar estado no localStorage
+  function saveState() {
+    localStorage.setItem('employeeState', JSON.stringify(employees));
+  }
+  
+  // Configurar botões
+  function setupButtons() {
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', handleButtonClick);
+    }
+  }
+  
+  // Manipular clique no botão
+  function handleButtonClick() {
+    var name = this.getAttribute('data-name');
+    var isWorking = employees[name] && employees[name].isWorking;
+    
+    if (isWorking) {
+      // Funcionário está a trabalhar, confirmar saída
+      if (confirm('Quer terminar o período de trabalho na secção de estufagem?')) {
+        endWork(name);
       }
-    })
-    .catch(error => {
-      alert('Erro: ' + error);
-    });
-  };
+    } else {
+      // Funcionário não está a trabalhar, confirmar entrada
+      if (confirm('Quer iniciar o período de trabalho na secção de estufagem?')) {
+        startWork(name);
+      }
+    }
+  }
+  
+  // Iniciar período de trabalho
+  function startWork(name) {
+    var now = new Date();
+    employees[name] = {
+      isWorking: true,
+      startTime: now.toISOString()
+    };
+    saveState();
+    updateStatus(name + ' iniciou trabalho às ' + formatTime(now));
+  }
+  
+  // Terminar período de trabalho
+  function endWork(name) {
+    var now = new Date();
+    var startTime = new Date(employees[name].startTime);
+    
+    var data = {
+      funcionario: name,
+      secao: 'Estufagem',
+      inicio: formatTime(startTime),
+      fim: formatTime(now),
+      duracao: calculateWorkDuration(startTime, now)
+    };
+    
+    // Enviar dados para o servidor
+    sendData(data);
+    
+    // Atualizar estado
+    employees[name].isWorking = false;
+    saveState();
+    
+    updateStatus(name + ' terminou trabalho às ' + formatTime(now));
+  }
+  
+  // Calcular duração do trabalho excluindo pausas
+  function calculateWorkDuration(start, end) {
+    var totalMinutes = 0;
+    var current = new Date(start);
+    
+    while (current < end) {
+      var currentTimeStr = formatTime(current);
+      var isBreakTime = false;
+      
+      // Verificar se o momento atual está em período de pausa
+      for (var i = 0; i < breakPeriods.length; i++) {
+        if (currentTimeStr >= breakPeriods[i].start && currentTimeStr < breakPeriods[i].end) {
+          isBreakTime = true;
+          break;
+        }
+      }
+      
+      if (!isBreakTime) {
+        totalMinutes++;
+      }
+      
+      // Avançar um minuto
+      current.setTime(current.getTime() + 60000);
+    }
+    
+    // Converter minutos para horas decimais
+    return (totalMinutes / 60).toFixed(2);
+  }
+  
+  // Formatar hora como HH:MM
+  function formatTime(date) {
+    var hours = date.getHours().toString().padStart(2, '0');
+    var minutes = date.getMinutes().toString().padStart(2, '0');
+    return hours + ':' + minutes;
+  }
+  
+  // Enviar dados para o servidor
+  function sendData(data) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', URL, true);
+    xhr.setRequestHeader('Content-Type', 'text/plain');
+    
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          updateStatus('Registo guardado com sucesso!');
+        } else {
+          updateStatus('Erro ao guardar registo. Tentando novamente mais tarde...');
+          saveOfflineData(data);
+        }
+      }
+    };
+    
+    xhr.send(JSON.stringify(data));
+  }
+  
+  // Salvar dados offline para envio posterior
+  function saveOfflineData(data) {
+    var offlineData = localStorage.getItem('offlineData');
+    var dataArray = offlineData ? JSON.parse(offlineData) : [];
+    dataArray.push(data);
+    localStorage.setItem('offlineData', JSON.stringify(dataArray));
+  }
+  
+  // Atualizar mensagem de status
+  function updateStatus(message) {
+    statusDiv.textContent = message;
+    statusDiv.className = 'status active';
+    
+    setTimeout(function() {
+      statusDiv.className = 'status';
+    }, 5000);
+  }
+  
+  // Inicializar
+  loadState();
+  setupButtons();
+  
+  // Tentar enviar dados offline quando a página carrega
+  function trySendOfflineData() {
+    var offlineData = localStorage.getItem('offlineData');
+    if (offlineData) {
+      var dataArray = JSON.parse(offlineData);
+      if (dataArray.length > 0) {
+        // Tentar enviar o primeiro item
+        sendData(dataArray[0]);
+        
+        // Se bem-sucedido, remover do array e atualizar localStorage
+        dataArray.shift();
+        localStorage.setItem('offlineData', JSON.stringify(dataArray));
+      }
+    }
+  }
+  
+  // Verificar dados offline a cada minuto
+  setInterval(trySendOfflineData, 60000);
 })();
 </script>
