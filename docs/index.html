@@ -20,6 +20,9 @@
     color: white;
     border: none;
   }
+  .employee-button.active {
+    background-color: #34a853; /* Verde quando ativo */
+  }
   .status {
     margin-top: 20px;
     padding: 10px;
@@ -30,6 +33,11 @@
     background-color: #d4edda;
     color: #155724;
   }
+  #loading {
+    display: none;
+    margin: 20px auto;
+    font-style: italic;
+  }
 </style>
 
 <h1>Registo Horário - Estofagem</h1>
@@ -39,6 +47,7 @@
   <button class="employee-button" data-name="Teresa">Teresa</button>
 </div>
 <div id="status" class="status"></div>
+<div id="loading">A processar...</div>
 
 <script>
 (function() {
@@ -48,6 +57,7 @@
   // Referência aos elementos
   var buttons = document.querySelectorAll('.employee-button');
   var statusDiv = document.getElementById('status');
+  var loadingDiv = document.getElementById('loading');
   
   // Períodos de pausa (formato 24h)
   var breakPeriods = [
@@ -62,13 +72,31 @@
   function loadState() {
     var savedState = localStorage.getItem('employeeState');
     if (savedState) {
-      employees = JSON.parse(savedState);
+      try {
+        employees = JSON.parse(savedState);
+        updateButtonsState(); // Atualizar visual dos botões
+      } catch(e) {
+        console.error("Erro ao carregar estado:", e);
+        employees = {};
+      }
     }
   }
   
   // Salvar estado no localStorage
   function saveState() {
     localStorage.setItem('employeeState', JSON.stringify(employees));
+  }
+  
+  // Atualizar o estado visual dos botões
+  function updateButtonsState() {
+    for (var i = 0; i < buttons.length; i++) {
+      var name = buttons[i].getAttribute('data-name');
+      if (employees[name] && employees[name].isWorking) {
+        buttons[i].classList.add('active');
+      } else {
+        buttons[i].classList.remove('active');
+      }
+    }
   }
   
   // Configurar botões
@@ -85,12 +113,12 @@
     
     if (isWorking) {
       // Funcionário está a trabalhar, confirmar saída
-      if (confirm('Quer terminar o período de trabalho na secção de estufagem?')) {
+      if (confirm('Quer terminar o período de trabalho na secção de estofagem?')) {
         endWork(name);
       }
     } else {
       // Funcionário não está a trabalhar, confirmar entrada
-      if (confirm('Quer iniciar o período de trabalho na secção de estufagem?')) {
+      if (confirm('Quer iniciar o período de trabalho na secção de estofagem?')) {
         startWork(name);
       }
     }
@@ -104,6 +132,7 @@
       startTime: now.toISOString()
     };
     saveState();
+    updateButtonsState(); // Atualizar visual dos botões
     updateStatus(name + ' iniciou trabalho às ' + formatTime(now));
   }
   
@@ -114,7 +143,7 @@
     
     var data = {
       funcionario: name,
-      secao: 'Estufagem',
+      secao: 'Estofagem',
       inicio: formatTime(startTime),
       fim: formatTime(now),
       duracao: calculateWorkDuration(startTime, now)
@@ -126,6 +155,7 @@
     // Atualizar estado
     employees[name].isWorking = false;
     saveState();
+    updateButtonsState(); // Atualizar visual dos botões
     
     updateStatus(name + ' terminou trabalho às ' + formatTime(now));
   }
@@ -166,24 +196,105 @@
     return hours + ':' + minutes;
   }
   
-  // Enviar dados para o servidor
+  // Enviar dados para o servidor - Método principal
   function sendData(data) {
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', URL, true);
-    xhr.setRequestHeader('Content-Type', 'text/plain');
+    // Salvar dados offline primeiro (garantia)
+    saveOfflineData(data);
     
-    xhr.onreadystatechange = function() {
-      if (xhr.readyState === 4) {
-        if (xhr.status === 200) {
-          updateStatus('Registo guardado com sucesso!');
-        } else {
-          updateStatus('Erro ao guardar registo. Tentando novamente mais tarde...');
-          saveOfflineData(data);
+    // Mostrar indicador de carregamento
+    loadingDiv.style.display = 'block';
+    
+    // Tentar primeiro com XMLHttpRequest (funciona em navegadores modernos)
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', URL, true);
+      xhr.setRequestHeader('Content-Type', 'text/plain');
+      
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+          loadingDiv.style.display = 'none';
+          
+          if (xhr.status === 200) {
+            updateStatus('Registo guardado com sucesso!');
+            removeFromOfflineData(data);
+          } else {
+            updateStatus('Erro ao guardar registo. Tentando método alternativo...');
+            // Tentar método alternativo
+            sendDataAlternative(data);
+          }
         }
-      }
+      };
+      
+      xhr.onerror = function() {
+        loadingDiv.style.display = 'none';
+        updateStatus('Erro de conexão. Tentando método alternativo...');
+        // Tentar método alternativo
+        sendDataAlternative(data);
+      };
+      
+      xhr.send(JSON.stringify(data));
+    } catch(e) {
+      console.error("Erro ao enviar dados:", e);
+      loadingDiv.style.display = 'none';
+      updateStatus('Erro ao enviar dados. Tentando método alternativo...');
+      // Tentar método alternativo
+      sendDataAlternative(data);
+    }
+  }
+  
+  // Método alternativo para enviar dados (mais compatível com dispositivos antigos)
+  function sendDataAlternative(data) {
+    // Mostrar indicador de carregamento
+    loadingDiv.style.display = 'block';
+    
+    // Criar um iframe oculto
+    var iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+    
+    // Criar um formulário dentro do iframe
+    var html = '<form id="form" method="POST" action="' + URL + '">';
+    html += '<input type="hidden" name="data" value=\'' + JSON.stringify(data) + '\'>';
+    html += '</form>';
+    html += '<script>document.getElementById("form").submit();<\/script>';
+    
+    // Configurar callbacks
+    iframe.onload = function() {
+      loadingDiv.style.display = 'none';
+      updateStatus('Registo guardado com sucesso!');
+      removeFromOfflineData(data);
+      
+      // Remover o iframe após um curto período
+      setTimeout(function() {
+        try {
+          document.body.removeChild(iframe);
+        } catch(e) {
+          console.error("Erro ao remover iframe:", e);
+        }
+      }, 1000);
     };
     
-    xhr.send(JSON.stringify(data));
+    iframe.onerror = function() {
+      loadingDiv.style.display = 'none';
+      updateStatus('Erro de conexão. Dados guardados localmente.');
+    };
+    
+    // Definir um timeout para esconder o indicador de carregamento caso demore muito
+    setTimeout(function() {
+      loadingDiv.style.display = 'none';
+    }, 5000);
+    
+    // Escrever o HTML no iframe
+    try {
+      var doc = iframe.contentWindow.document;
+      doc.open();
+      doc.write(html);
+      doc.close();
+    } catch(e) {
+      console.error("Erro ao escrever no iframe:", e);
+      loadingDiv.style.display = 'none';
+      updateStatus('Erro ao enviar dados. Serão enviados mais tarde.');
+    }
   }
   
   // Salvar dados offline para envio posterior
@@ -192,6 +303,37 @@
     var dataArray = offlineData ? JSON.parse(offlineData) : [];
     dataArray.push(data);
     localStorage.setItem('offlineData', JSON.stringify(dataArray));
+  }
+  
+  // Remover dados do armazenamento offline
+  function removeFromOfflineData(data) {
+    var offlineData = localStorage.getItem('offlineData');
+    if (!offlineData) return;
+    
+    var dataArray = JSON.parse(offlineData);
+    // Filtrar para remover o item que acabou de ser enviado com sucesso
+    var newArray = dataArray.filter(function(item) {
+      if (item.funcionario === data.funcionario && 
+          item.inicio === data.inicio &&
+          item.fim === data.fim) {
+        return false; // Remover este item
+      }
+      return true; // Manter este item
+    });
+    
+    localStorage.setItem('offlineData', JSON.stringify(newArray));
+  }
+  
+  // Tentar enviar dados offline
+  function trySendOfflineData() {
+    var offlineData = localStorage.getItem('offlineData');
+    if (offlineData) {
+      var dataArray = JSON.parse(offlineData);
+      if (dataArray.length > 0) {
+        // Tentar enviar o primeiro item
+        sendData(dataArray[0]);
+      }
+    }
   }
   
   // Atualizar mensagem de status
@@ -207,22 +349,6 @@
   // Inicializar
   loadState();
   setupButtons();
-  
-  // Tentar enviar dados offline quando a página carrega
-  function trySendOfflineData() {
-    var offlineData = localStorage.getItem('offlineData');
-    if (offlineData) {
-      var dataArray = JSON.parse(offlineData);
-      if (dataArray.length > 0) {
-        // Tentar enviar o primeiro item
-        sendData(dataArray[0]);
-        
-        // Se bem-sucedido, remover do array e atualizar localStorage
-        dataArray.shift();
-        localStorage.setItem('offlineData', JSON.stringify(dataArray));
-      }
-    }
-  }
   
   // Verificar dados offline a cada minuto
   setInterval(trySendOfflineData, 60000);
