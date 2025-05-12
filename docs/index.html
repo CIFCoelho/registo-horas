@@ -1,39 +1,64 @@
 <!doctype html>
-<meta charset=utf-8>
-<title>Estofagem</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Registo Estofagem</title>
 <style>
- body{font:20px/1 sans-serif;text-align:center} button{width:90%;margin:12px 0;height:70px}
- .on{background:#4caf50;color:#fff} .off{background:#ccc}
+ body{font:20px/1 sans-serif;text-align:center;margin:0 auto;max-width:480px;padding:1rem}
+ button{width:90%;height:70px;margin:10px 0;border:0;border-radius:10px;font-size:24px}
+ .on{background:#4caf50;color:#fff}.off{background:#ccc;color:#000}
+ #status{margin-top:12px;font-weight:bold}
 </style>
+
 <h1>Registo Estofagem</h1>
-<div id=wrap></div>
+<div id="wrap"></div>
+<div id="status"></div>
+
 <script>
-var EMP=['Antónia','Diana','Teresa'], URL='https://.../exec';
-function render(state){ // state {nome:true/false}
-  var w=document.getElementById('wrap'); w.innerHTML='';
-  for(var i=0;i<EMP.length;i++){
-    var n=EMP[i],b=document.createElement('button');
-    b.textContent=n; b.className=state[n]?'on':'off';
-    b.onclick=function(){
-      var nome=this.textContent,now=new Date();
-      send({func:nome,ts:now.toISOString(),acao:state[nome]?'fim':'ini'});
-    };
-    w.appendChild(b);
+(function(){
+  /* ⚠️  Substitui pelo teu URL /exec */
+  var URL="https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
+  var EMP=["Antónia","Diana","Teresa"], wrap=document.getElementById('wrap');
+
+  /* ---------- renderiza botões conforme estado ---------- */
+  function render(state){
+    wrap.innerHTML='';
+    for(var i=0;i<EMP.length;i++){
+      var n=EMP[i],b=document.createElement('button');
+      b.textContent=n;
+      b.className=state[n]?"on":"off";
+      b.onclick=(function(nome){
+        return function(){
+          var acao=state[nome]?"fim":"ini";
+          send({func:nome,acao:acao});
+        };
+      })(n);
+      wrap.appendChild(b);
+    }
   }
-}
-function send(d){
-  var x=new XMLHttpRequest();
-  x.open('POST',URL); x.setRequestHeader('Content-Type','text/plain');
-  x.onreadystatechange=function(){
-    if(x.readyState==4) refresh(); // volta a pedir estado
-  };
-  x.send(JSON.stringify(d));
-}
-function refresh(){ // pede estado actual
-  var x=new XMLHttpRequest();
-  x.open('GET',URL+'?estado'); // devolve JSON de quem está ON
-  x.onload=function(){render(JSON.parse(x.responseText));};
-  x.send();
-}
-refresh();
+
+  /* ---------- envia INI/FIM ---------- */
+  function send(payload){
+    var x=new XMLHttpRequest();
+    x.open("POST",URL,true);
+    x.setRequestHeader("Content-Type","text/plain");
+    x.onreadystatechange=function(){
+      if(x.readyState===4){
+        document.getElementById('status').textContent=
+          (x.status===200)?"Registo OK":"Erro "+x.status;
+        refresh();          // volta a pedir estado
+      }
+    };
+    x.send(JSON.stringify(payload));
+  }
+
+  /* ---------- pede estado via JSON-P ---------- */
+  function refresh(){
+    var s=document.createElement('script');
+    s.src=URL+"?estado&callback=render";
+    document.body.appendChild(s);
+  }
+
+  window.render=render; // callback global para JSON-P
+  refresh();            // primeira actualização
+})();
 </script>
