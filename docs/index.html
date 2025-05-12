@@ -20,9 +20,6 @@
     color: white;
     border: none;
   }
-  .employee-button.active {
-    background-color: #34a853;
-  }
   .status {
     margin-top: 20px;
     padding: 10px;
@@ -33,11 +30,6 @@
     background-color: #d4edda;
     color: #155724;
   }
-  #loading {
-    display: none;
-    margin: 20px auto;
-    font-style: italic;
-  }
 </style>
 
 <h1>Registo Horário - Estofagem</h1>
@@ -47,17 +39,15 @@
   <button class="employee-button" data-name="Teresa">Teresa</button>
 </div>
 <div id="status" class="status"></div>
-<div id="loading">A processar...</div>
 
 <script>
 (function() {
   // URL do Google Apps Script
-  var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
+  var URL = "https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
   
   // Referência aos elementos
   var buttons = document.querySelectorAll('.employee-button');
   var statusDiv = document.getElementById('status');
-  var loadingDiv = document.getElementById('loading');
   
   // Períodos de pausa (formato 24h)
   var breakPeriods = [
@@ -72,31 +62,13 @@
   function loadState() {
     var savedState = localStorage.getItem('employeeState');
     if (savedState) {
-      try {
-        employees = JSON.parse(savedState);
-        updateButtonsState();
-      } catch(e) {
-        console.error("Erro ao carregar estado:", e);
-        employees = {};
-      }
+      employees = JSON.parse(savedState);
     }
   }
   
   // Salvar estado no localStorage
   function saveState() {
     localStorage.setItem('employeeState', JSON.stringify(employees));
-  }
-  
-  // Atualizar o estado visual dos botões
-  function updateButtonsState() {
-    for (var i = 0; i < buttons.length; i++) {
-      var name = buttons[i].getAttribute('data-name');
-      if (employees[name] && employees[name].isWorking) {
-        buttons[i].classList.add('active');
-      } else {
-        buttons[i].classList.remove('active');
-      }
-    }
   }
   
   // Configurar botões
@@ -113,12 +85,12 @@
     
     if (isWorking) {
       // Funcionário está a trabalhar, confirmar saída
-      if (confirm('Quer terminar o período de trabalho na secção de estofagem?')) {
+      if (confirm('Quer terminar o período de trabalho na secção de estufagem?')) {
         endWork(name);
       }
     } else {
       // Funcionário não está a trabalhar, confirmar entrada
-      if (confirm('Quer iniciar o período de trabalho na secção de estofagem?')) {
+      if (confirm('Quer iniciar o período de trabalho na secção de estufagem?')) {
         startWork(name);
       }
     }
@@ -132,48 +104,30 @@
       startTime: now.toISOString()
     };
     saveState();
-    updateButtonsState();
     updateStatus(name + ' iniciou trabalho às ' + formatTime(now));
-    
-    // Preparar dados para enviar
-    var data = {
-      funcionario: name,
-      secao: "Estofagem",
-      inicio: formatTime(now),
-      fim: ""
-    };
-    
-    // Enviar dados para o servidor
-    sendToServer(data);
   }
   
   // Terminar período de trabalho
   function endWork(name) {
-    if (!employees[name] || !employees[name].isWorking) {
-      updateStatus('Erro: ' + name + ' não está em período de trabalho');
-      return;
-    }
-    
     var now = new Date();
     var startTime = new Date(employees[name].startTime);
     
-    // Preparar dados para enviar
     var data = {
       funcionario: name,
-      secao: "Estofagem",
+      secao: 'Estufagem',
       inicio: formatTime(startTime),
       fim: formatTime(now),
       duracao: calculateWorkDuration(startTime, now)
     };
     
+    // Enviar dados para o servidor
+    sendData(data);
+    
     // Atualizar estado
     employees[name].isWorking = false;
     saveState();
-    updateButtonsState();
-    updateStatus(name + ' terminou trabalho às ' + formatTime(now));
     
-    // Enviar dados para o servidor
-    sendToServer(data);
+    updateStatus(name + ' terminou trabalho às ' + formatTime(now));
   }
   
   // Calcular duração do trabalho excluindo pausas
@@ -212,102 +166,32 @@
     return hours + ':' + minutes;
   }
   
-  // Enviar dados para o servidor usando URL com parâmetros (GET)
-  function sendToServer(data) {
-    console.log("Enviando dados:", data);
+  // Enviar dados para o servidor
+  function sendData(data) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', URL, true);
+    xhr.setRequestHeader('Content-Type', 'text/plain');
     
-    // Salvar dados offline primeiro (garantia)
-    saveOfflineData(data);
-    
-    // Mostrar indicador de carregamento
-    loadingDiv.style.display = 'block';
-    
-    // Construir URL com parâmetros (método GET é mais compatível)
-    var url = SCRIPT_URL + "?";
-    for (var key in data) {
-      if (data.hasOwnProperty(key)) {
-        url += encodeURIComponent(key) + "=" + encodeURIComponent(data[key]) + "&";
-      }
-    }
-    url += "_=" + new Date().getTime(); // Evitar cache
-    
-    console.log("URL de requisição:", url);
-    
-    // Usar um iframe para carregar a URL (mais compatível com dispositivos antigos)
-    var iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.onload = function() {
-      loadingDiv.style.display = 'none';
-      updateStatus('Registo guardado com sucesso!');
-      removeFromOfflineData(data);
-      
-      // Remover o iframe após um curto período
-      setTimeout(function() {
-        try {
-          document.body.removeChild(iframe);
-        } catch(e) {
-          console.error("Erro ao remover iframe:", e);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          updateStatus('Registo guardado com sucesso!');
+        } else {
+          updateStatus('Erro ao guardar registo. Tentando novamente mais tarde...');
+          saveOfflineData(data);
         }
-      }, 100);
+      }
     };
     
-    iframe.onerror = function() {
-      loadingDiv.style.display = 'none';
-      updateStatus('Erro de conexão. Dados guardados localmente.');
-    };
-    
-    // Definir um timeout para esconder o indicador de carregamento caso demore muito
-    setTimeout(function() {
-      loadingDiv.style.display = 'none';
-    }, 5000);
-    
-    // Adicionar o iframe ao documento
-    iframe.src = url;
-    document.body.appendChild(iframe);
+    xhr.send(JSON.stringify(data));
   }
   
   // Salvar dados offline para envio posterior
   function saveOfflineData(data) {
     var offlineData = localStorage.getItem('offlineData');
     var dataArray = offlineData ? JSON.parse(offlineData) : [];
-    dataArray.push({
-      data: data,
-      timestamp: new Date().getTime()
-    });
+    dataArray.push(data);
     localStorage.setItem('offlineData', JSON.stringify(dataArray));
-  }
-  
-  // Remover dados do armazenamento offline
-  function removeFromOfflineData(data) {
-    var offlineData = localStorage.getItem('offlineData');
-    if (!offlineData) return;
-    
-    var dataArray = JSON.parse(offlineData);
-    // Filtrar para remover o item que acabou de ser enviado com sucesso
-    var newArray = dataArray.filter(function(item) {
-      if (item.data.funcionario === data.funcionario && 
-          item.data.inicio === data.inicio &&
-          item.data.fim === data.fim) {
-        return false; // Remover este item
-      }
-      return true; // Manter este item
-    });
-    
-    localStorage.setItem('offlineData', JSON.stringify(newArray));
-  }
-  
-  // Tentar enviar dados offline
-  function trySendOfflineData() {
-    var offlineData = localStorage.getItem('offlineData');
-    if (!offlineData) return;
-    
-    var dataArray = JSON.parse(offlineData);
-    if (dataArray.length === 0) return;
-    
-    console.log("Tentando enviar", dataArray.length, "registros offline");
-    
-    // Enviar o primeiro item
-    sendToServer(dataArray[0].data);
   }
   
   // Atualizar mensagem de status
@@ -324,7 +208,23 @@
   loadState();
   setupButtons();
   
-  // Verificar dados offline a cada 30 segundos
-  setInterval(trySendOfflineData, 30000);
+  // Tentar enviar dados offline quando a página carrega
+  function trySendOfflineData() {
+    var offlineData = localStorage.getItem('offlineData');
+    if (offlineData) {
+      var dataArray = JSON.parse(offlineData);
+      if (dataArray.length > 0) {
+        // Tentar enviar o primeiro item
+        sendData(dataArray[0]);
+        
+        // Se bem-sucedido, remover do array e atualizar localStorage
+        dataArray.shift();
+        localStorage.setItem('offlineData', JSON.stringify(dataArray));
+      }
+    }
+  }
+  
+  // Verificar dados offline a cada minuto
+  setInterval(trySendOfflineData, 60000);
 })();
 </script>
