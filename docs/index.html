@@ -51,13 +51,19 @@
 
 <script>
 (function() {
-  // URL do Google Apps Script - Certifique-se de que este URL está correto
+  // URL do Google Apps Script
   var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
   
   // Referência aos elementos
   var buttons = document.querySelectorAll('.employee-button');
   var statusDiv = document.getElementById('status');
   var loadingDiv = document.getElementById('loading');
+  
+  // Períodos de pausa (formato 24h)
+  var breakPeriods = [
+    { start: '10:00', end: '10:10' },
+    { start: '12:00', end: '13:00' }
+  ];
   
   // Inicializar estado dos funcionários
   var employees = {};
@@ -131,11 +137,10 @@
     
     // Preparar dados para enviar
     var data = {
-      action: "startWork",
       funcionario: name,
       secao: "Estofagem",
       inicio: formatTime(now),
-      timestamp: now.getTime()
+      fim: ""
     };
     
     // Enviar dados para o servidor
@@ -154,13 +159,11 @@
     
     // Preparar dados para enviar
     var data = {
-      action: "endWork",
       funcionario: name,
       secao: "Estofagem",
       inicio: formatTime(startTime),
       fim: formatTime(now),
-      startTimestamp: startTime.getTime(),
-      endTimestamp: now.getTime()
+      duracao: calculateWorkDuration(startTime, now)
     };
     
     // Atualizar estado
@@ -173,6 +176,35 @@
     sendToServer(data);
   }
   
+  // Calcular duração do trabalho excluindo pausas
+  function calculateWorkDuration(start, end) {
+    var totalMinutes = 0;
+    var current = new Date(start);
+    
+    while (current < end) {
+      var currentTimeStr = formatTime(current);
+      var isBreakTime = false;
+      
+      // Verificar se o momento atual está em período de pausa
+      for (var i = 0; i < breakPeriods.length; i++) {
+        if (currentTimeStr >= breakPeriods[i].start && currentTimeStr < breakPeriods[i].end) {
+          isBreakTime = true;
+          break;
+        }
+      }
+      
+      if (!isBreakTime) {
+        totalMinutes++;
+      }
+      
+      // Avançar um minuto
+      current.setTime(current.getTime() + 60000);
+    }
+    
+    // Converter minutos para horas decimais
+    return (totalMinutes / 60).toFixed(2);
+  }
+  
   // Formatar hora como HH:MM
   function formatTime(date) {
     var hours = date.getHours().toString().padStart(2, '0');
@@ -180,7 +212,7 @@
     return hours + ':' + minutes;
   }
   
-  // Enviar dados para o servidor
+  // Enviar dados para o servidor usando URL com parâmetros (GET)
   function sendToServer(data) {
     console.log("Enviando dados:", data);
     
@@ -190,70 +222,46 @@
     // Mostrar indicador de carregamento
     loadingDiv.style.display = 'block';
     
-    // Método 1: Usando XMLHttpRequest (versão original)
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', SCRIPT_URL, true);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    
-    xhr.onreadystatechange = function() {
-      if (xhr.readyState === 4) {
-        loadingDiv.style.display = 'none';
-        
-        if (xhr.status === 200) {
-          console.log("Resposta do servidor:", xhr.responseText);
-          updateStatus('Registo guardado com sucesso!');
-          removeFromOfflineData(data);
-        } else {
-          console.error("Erro na requisição:", xhr.status, xhr.statusText);
-          updateStatus('Erro ao guardar registo. Tentando novamente mais tarde...');
-        }
+    // Construir URL com parâmetros (método GET é mais compatível)
+    var url = SCRIPT_URL + "?";
+    for (var key in data) {
+      if (data.hasOwnProperty(key)) {
+        url += encodeURIComponent(key) + "=" + encodeURIComponent(data[key]) + "&";
       }
+    }
+    url += "_=" + new Date().getTime(); // Evitar cache
+    
+    // Usar um iframe para carregar a URL (mais compatível com dispositivos antigos)
+    var iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.onload = function() {
+      loadingDiv.style.display = 'none';
+      updateStatus('Registo guardado com sucesso!');
+      removeFromOfflineData(data);
+      
+      // Remover o iframe após um curto período
+      setTimeout(function() {
+        try {
+          document.body.removeChild(iframe);
+        } catch(e) {
+          console.error("Erro ao remover iframe:", e);
+        }
+      }, 100);
     };
     
-    xhr.onerror = function() {
+    iframe.onerror = function() {
       loadingDiv.style.display = 'none';
-      console.error("Erro de rede na requisição");
       updateStatus('Erro de conexão. Dados guardados localmente.');
     };
     
-    try {
-      xhr.send(JSON.stringify(data));
-    } catch(e) {
-      console.error("Erro ao enviar dados:", e);
-      loadingDiv.style.display = 'none';
-      updateStatus('Erro ao enviar dados. Tentando método alternativo...');
-      
-      // Método alternativo: Usando um formulário
-      sendViaForm(data);
-    }
-  }
-  
-  // Método alternativo para enviar dados via formulário
-  function sendViaForm(data) {
-    var form = document.createElement('form');
-    form.method = 'POST';
-    form.action = SCRIPT_URL;
-    form.style.display = 'none';
-    
-    var input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'data';
-    input.value = JSON.stringify(data);
-    form.appendChild(input);
-    
-    document.body.appendChild(form);
-    
-    try {
-      form.submit();
-      updateStatus('Dados enviados via formulário');
-    } catch(e) {
-      console.error("Erro ao enviar via formulário:", e);
-      updateStatus('Erro ao enviar dados. Serão enviados mais tarde.');
-    }
-    
+    // Definir um timeout para esconder o indicador de carregamento caso demore muito
     setTimeout(function() {
-      document.body.removeChild(form);
-    }, 1000);
+      loadingDiv.style.display = 'none';
+    }, 5000);
+    
+    // Adicionar o iframe ao documento
+    iframe.src = url;
+    document.body.appendChild(iframe);
   }
   
   // Salvar dados offline para envio posterior
@@ -276,8 +284,8 @@
     // Filtrar para remover o item que acabou de ser enviado com sucesso
     var newArray = dataArray.filter(function(item) {
       if (item.data.funcionario === data.funcionario && 
-          item.data.action === data.action &&
-          Math.abs(item.data.timestamp - data.timestamp) < 1000) {
+          item.data.inicio === data.inicio &&
+          item.data.fim === data.fim) {
         return false; // Remover este item
       }
       return true; // Manter este item
