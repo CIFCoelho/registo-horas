@@ -42,113 +42,50 @@
 
 <h1>Registo Horário - Estofagem</h1>
 <div id="employee-buttons">
-  <!-- Buttons will be added dynamically -->
+  <button class="employee-button" data-name="Antónia">Antónia</button>
+  <button class="employee-button" data-name="Diana">Diana</button>
+  <button class="employee-button" data-name="Teresa">Teresa</button>
 </div>
 <div id="status" class="status"></div>
 <div id="loading">A processar...</div>
 
 <script>
 (function() {
-  // URL do Google Apps Script (use JSONP format for better compatibility)
-  var BASE_URL = "https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
+  // URL do Google Apps Script - Certifique-se de que este URL está correto
+  var SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbv3rV0rBWHvBuypZGg-uCk0JRqg5dDeHJgiz1383B_JtgwndA1HON2r83xfJJ76Ul/exec";
   
   // Referência aos elementos
-  var buttonsContainer = document.getElementById('employee-buttons');
+  var buttons = document.querySelectorAll('.employee-button');
   var statusDiv = document.getElementById('status');
   var loadingDiv = document.getElementById('loading');
   
-  // Lista de funcionários
-  var employees = [
-    "Antónia",
-    "Diana",
-    "Teresa"
-  ];
+  // Inicializar estado dos funcionários
+  var employees = {};
   
-  // Estado atual
-  var currentState = {};
-  
-  // Inicializar
-  function init() {
-    // Carregar estado atual do servidor
-    loadCurrentState();
-    
-    // Criar botões para cada funcionário
-    createButtons();
-    
-    // Verificar dados offline a cada 30 segundos (mais frequente para o iPad antigo)
-    setInterval(sendOfflineData, 30000);
-  }
-  
-  // Criar botões para cada funcionário
-  function createButtons() {
-    buttonsContainer.innerHTML = '';
-    
-    for (var i = 0; i < employees.length; i++) {
-      var button = document.createElement('button');
-      button.className = 'employee-button';
-      button.setAttribute('data-name', employees[i]);
-      button.textContent = employees[i];
-      
-      // Adicionar classe active se o funcionário estiver trabalhando
-      if (currentState[employees[i]] && currentState[employees[i]].isWorking) {
-        button.className += ' active';
-      }
-      
-      button.onclick = handleButtonClick;
-      buttonsContainer.appendChild(button);
-    }
-  }
-  
-  // Carregar estado atual do servidor
-  function loadCurrentState() {
-    // Primeiro tentar carregar do localStorage
+  // Carregar estado do localStorage
+  function loadState() {
     var savedState = localStorage.getItem('employeeState');
     if (savedState) {
       try {
-        currentState = JSON.parse(savedState);
+        employees = JSON.parse(savedState);
+        updateButtonsState();
       } catch(e) {
-        currentState = {};
+        console.error("Erro ao carregar estado:", e);
+        employees = {};
       }
     }
-    
-    // Atualizar a interface com o estado atual
-    updateButtonsState();
-    
-    // Fazer uma solicitação ao servidor para obter o estado mais recente
-    var url = BASE_URL + "?action=getState&_=" + new Date().getTime();
-    
-    loadingDiv.style.display = 'block';
-    
-    // Usar um iframe para carregar dados (mais compatível com dispositivos antigos)
-    var iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.onload = function() {
-      loadingDiv.style.display = 'none';
-      // Tentar ler a resposta do iframe
-      try {
-        setTimeout(function() {
-          document.body.removeChild(iframe);
-        }, 100);
-      } catch(e) {
-        console.log("Erro ao remover iframe:", e);
-      }
-    };
-    
-    iframe.src = url;
-    document.body.appendChild(iframe);
-    
-    // Definir um timeout para esconder o indicador de carregamento caso demore muito
-    setTimeout(function() {
-      loadingDiv.style.display = 'none';
-    }, 5000);
+  }
+  
+  // Salvar estado no localStorage
+  function saveState() {
+    localStorage.setItem('employeeState', JSON.stringify(employees));
   }
   
   // Atualizar o estado visual dos botões
   function updateButtonsState() {
-    var buttons = document.querySelectorAll('.employee-button');
     for (var i = 0; i < buttons.length; i++) {
       var name = buttons[i].getAttribute('data-name');
-      if (currentState[name] && currentState[name].isWorking) {
+      if (employees[name] && employees[name].isWorking) {
         buttons[i].classList.add('active');
       } else {
         buttons[i].classList.remove('active');
@@ -156,19 +93,26 @@
     }
   }
   
+  // Configurar botões
+  function setupButtons() {
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', handleButtonClick);
+    }
+  }
+  
   // Manipular clique no botão
   function handleButtonClick() {
     var name = this.getAttribute('data-name');
-    var isWorking = currentState[name] && currentState[name].isWorking;
+    var isWorking = employees[name] && employees[name].isWorking;
     
     if (isWorking) {
       // Funcionário está a trabalhar, confirmar saída
-      if (confirm('Quer terminar o período de trabalho na secção de estufagem?')) {
+      if (confirm('Quer terminar o período de trabalho na secção de estofagem?')) {
         endWork(name);
       }
     } else {
       // Funcionário não está a trabalhar, confirmar entrada
-      if (confirm('Quer iniciar o período de trabalho na secção de estufagem?')) {
+      if (confirm('Quer iniciar o período de trabalho na secção de estofagem?')) {
         startWork(name);
       }
     }
@@ -177,65 +121,55 @@
   // Iniciar período de trabalho
   function startWork(name) {
     var now = new Date();
-    var formattedTime = formatTime(now);
-    
-    // Atualizar estado local
-    currentState[name] = {
+    employees[name] = {
       isWorking: true,
       startTime: now.toISOString()
     };
-    
-    // Salvar no localStorage
-    localStorage.setItem('employeeState', JSON.stringify(currentState));
-    
-    // Atualizar interface
+    saveState();
     updateButtonsState();
-    updateStatus(name + ' iniciou trabalho às ' + formattedTime);
+    updateStatus(name + ' iniciou trabalho às ' + formatTime(now));
     
-    // Enviar ao servidor
+    // Preparar dados para enviar
     var data = {
-      action: 'startWork',
+      action: "startWork",
       funcionario: name,
-      secao: 'Estufagem',
-      inicio: formattedTime,
+      secao: "Estofagem",
+      inicio: formatTime(now),
       timestamp: now.getTime()
     };
     
+    // Enviar dados para o servidor
     sendToServer(data);
   }
   
   // Terminar período de trabalho
   function endWork(name) {
-    if (!currentState[name] || !currentState[name].isWorking) {
+    if (!employees[name] || !employees[name].isWorking) {
       updateStatus('Erro: ' + name + ' não está em período de trabalho');
       return;
     }
     
     var now = new Date();
-    var formattedTime = formatTime(now);
-    var startTime = new Date(currentState[name].startTime);
+    var startTime = new Date(employees[name].startTime);
     
-    // Atualizar estado local
-    currentState[name].isWorking = false;
-    
-    // Salvar no localStorage
-    localStorage.setItem('employeeState', JSON.stringify(currentState));
-    
-    // Atualizar interface
-    updateButtonsState();
-    updateStatus(name + ' terminou trabalho às ' + formattedTime);
-    
-    // Enviar ao servidor - deixar o servidor calcular a duração
+    // Preparar dados para enviar
     var data = {
-      action: 'endWork',
+      action: "endWork",
       funcionario: name,
-      secao: 'Estufagem',
+      secao: "Estofagem",
       inicio: formatTime(startTime),
-      fim: formattedTime,
+      fim: formatTime(now),
       startTimestamp: startTime.getTime(),
       endTimestamp: now.getTime()
     };
     
+    // Atualizar estado
+    employees[name].isWorking = false;
+    saveState();
+    updateButtonsState();
+    updateStatus(name + ' terminou trabalho às ' + formatTime(now));
+    
+    // Enviar dados para o servidor
     sendToServer(data);
   }
   
@@ -246,48 +180,80 @@
     return hours + ':' + minutes;
   }
   
-  // Enviar dados para o servidor usando um método mais compatível
+  // Enviar dados para o servidor
   function sendToServer(data) {
+    console.log("Enviando dados:", data);
+    
     // Salvar dados offline primeiro (garantia)
     saveOfflineData(data);
     
-    // Construir URL com parâmetros
-    var url = BASE_URL + "?data=" + encodeURIComponent(JSON.stringify(data)) + "&_=" + new Date().getTime();
-    
+    // Mostrar indicador de carregamento
     loadingDiv.style.display = 'block';
     
-    // Usar um iframe para enviar dados (mais compatível com dispositivos antigos)
-    var iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.onload = function() {
-      loadingDiv.style.display = 'none';
-      updateStatus('Operação registada com sucesso!');
-      
-      // Remover dos dados offline se bem sucedido
-      removeFromOfflineData(data);
-      
-      // Remover o iframe
-      try {
-        setTimeout(function() {
-          document.body.removeChild(iframe);
-        }, 100);
-      } catch(e) {
-        console.log("Erro ao remover iframe:", e);
+    // Método 1: Usando XMLHttpRequest (versão original)
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', SCRIPT_URL, true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        loadingDiv.style.display = 'none';
+        
+        if (xhr.status === 200) {
+          console.log("Resposta do servidor:", xhr.responseText);
+          updateStatus('Registo guardado com sucesso!');
+          removeFromOfflineData(data);
+        } else {
+          console.error("Erro na requisição:", xhr.status, xhr.statusText);
+          updateStatus('Erro ao guardar registo. Tentando novamente mais tarde...');
+        }
       }
     };
     
-    iframe.onerror = function() {
+    xhr.onerror = function() {
       loadingDiv.style.display = 'none';
+      console.error("Erro de rede na requisição");
       updateStatus('Erro de conexão. Dados guardados localmente.');
     };
     
-    iframe.src = url;
-    document.body.appendChild(iframe);
-    
-    // Definir um timeout para esconder o indicador de carregamento caso demore muito
-    setTimeout(function() {
+    try {
+      xhr.send(JSON.stringify(data));
+    } catch(e) {
+      console.error("Erro ao enviar dados:", e);
       loadingDiv.style.display = 'none';
-    }, 5000);
+      updateStatus('Erro ao enviar dados. Tentando método alternativo...');
+      
+      // Método alternativo: Usando um formulário
+      sendViaForm(data);
+    }
+  }
+  
+  // Método alternativo para enviar dados via formulário
+  function sendViaForm(data) {
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = SCRIPT_URL;
+    form.style.display = 'none';
+    
+    var input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'data';
+    input.value = JSON.stringify(data);
+    form.appendChild(input);
+    
+    document.body.appendChild(form);
+    
+    try {
+      form.submit();
+      updateStatus('Dados enviados via formulário');
+    } catch(e) {
+      console.error("Erro ao enviar via formulário:", e);
+      updateStatus('Erro ao enviar dados. Serão enviados mais tarde.');
+    }
+    
+    setTimeout(function() {
+      document.body.removeChild(form);
+    }, 1000);
   }
   
   // Salvar dados offline para envio posterior
@@ -308,60 +274,30 @@
     
     var dataArray = JSON.parse(offlineData);
     // Filtrar para remover o item que acabou de ser enviado com sucesso
-    dataArray = dataArray.filter(function(item) {
-      return item.data.funcionario !== data.funcionario || 
-             item.data.action !== data.action ||
-             item.data.timestamp !== data.timestamp;
+    var newArray = dataArray.filter(function(item) {
+      if (item.data.funcionario === data.funcionario && 
+          item.data.action === data.action &&
+          Math.abs(item.data.timestamp - data.timestamp) < 1000) {
+        return false; // Remover este item
+      }
+      return true; // Manter este item
     });
     
-    localStorage.setItem('offlineData', JSON.stringify(dataArray));
+    localStorage.setItem('offlineData', JSON.stringify(newArray));
   }
   
-  // Enviar dados offline
-  function sendOfflineData() {
+  // Tentar enviar dados offline
+  function trySendOfflineData() {
     var offlineData = localStorage.getItem('offlineData');
     if (!offlineData) return;
     
     var dataArray = JSON.parse(offlineData);
     if (dataArray.length === 0) return;
     
-    // Ordenar por timestamp para enviar os mais antigos primeiro
-    dataArray.sort(function(a, b) {
-      return a.timestamp - b.timestamp;
-    });
+    console.log("Tentando enviar", dataArray.length, "registros offline");
     
     // Enviar o primeiro item
-    var firstItem = dataArray[0];
-    
-    // Construir URL com parâmetros
-    var url = BASE_URL + "?data=" + encodeURIComponent(JSON.stringify(firstItem.data)) + 
-              "&offline=true&_=" + new Date().getTime();
-    
-    // Usar um iframe para enviar dados
-    var iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.onload = function() {
-      // Remover o item enviado da lista
-      dataArray.shift();
-      localStorage.setItem('offlineData', JSON.stringify(dataArray));
-      
-      // Remover o iframe
-      try {
-        setTimeout(function() {
-          document.body.removeChild(iframe);
-        }, 100);
-      } catch(e) {
-        console.log("Erro ao remover iframe:", e);
-      }
-      
-      // Se ainda houver mais itens, continuar enviando
-      if (dataArray.length > 0) {
-        setTimeout(sendOfflineData, 3000);
-      }
-    };
-    
-    iframe.src = url;
-    document.body.appendChild(iframe);
+    sendToServer(dataArray[0].data);
   }
   
   // Atualizar mensagem de status
@@ -374,7 +310,11 @@
     }, 5000);
   }
   
-  // Iniciar a aplicação
-  init();
+  // Inicializar
+  loadState();
+  setupButtons();
+  
+  // Verificar dados offline a cada 30 segundos
+  setInterval(trySendOfflineData, 30000);
 })();
 </script>
