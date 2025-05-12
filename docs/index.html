@@ -231,6 +231,8 @@
     }
     url += "_=" + new Date().getTime(); // Evitar cache
     
+    console.log("URL de requisição:", url);
+    
     // Usar um iframe para carregar a URL (mais compatível com dispositivos antigos)
     var iframe = document.createElement('iframe');
     iframe.style.display = 'none';
