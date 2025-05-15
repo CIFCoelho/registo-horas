@@ -21,7 +21,7 @@
     border: none;
   }
   .employee-button.active {
-    background-color: #34a853; /* Verde quando ativo */
+    background-color: #34a853;
   }
   .status {
     margin-top: 20px;
@@ -38,7 +38,6 @@
     margin: 20px auto;
     font-style: italic;
   }
-  /* Iframe oculto para envio de dados */
   #hidden-iframe {
     display: none;
     width: 0;
@@ -56,52 +55,46 @@
 <div id="status" class="status"></div>
 <div id="loading">A processar...</div>
 
-<!-- Iframe oculto para envio de dados -->
 <iframe id="hidden-iframe" name="hidden-iframe"></iframe>
 
-<!-- Formulário oculto para envio de dados -->
-<form id="data-form" target="hidden-iframe" method="POST" style="display:none;">
+<form id="data-form"
+      action="https://script.google.com/macros/s/AKfycbzmELss6Z2Q8kp65Y5JOxFrqlVulmf_hWDrynjuw57zW3pVBtnnN5juovfbmYjYwQa7/exec"
+      target="hidden-iframe"
+      method="POST"
+      style="display:none;">
   <input type="hidden" id="form-data" name="data" value="">
 </form>
 
 <script>
 (function() {
-  // URL do Google Apps Script
   var URL = "https://script.google.com/macros/s/AKfycbzmELss6Z2Q8kp65Y5JOxFrqlVulmf_hWDrynjuw57zW3pVBtnnN5juovfbmYjYwQa7/exec";
-  
-  // Referência aos elementos
   var buttons = document.querySelectorAll('.employee-button');
   var statusDiv = document.getElementById('status');
   var loadingDiv = document.getElementById('loading');
   var dataForm = document.getElementById('data-form');
   var formData = document.getElementById('form-data');
   var hiddenIframe = document.getElementById('hidden-iframe');
-  
-  // Períodos de pausa (formato 24h)
+
   var breakPeriods = [
     { start: '10:00', end: '10:10' },
     { start: '12:00', end: '13:00' }
   ];
-  
-  // Inicializar estado dos funcionários
+
   var employees = {};
-  
-  // Carregar estado do localStorage
+
   function loadState() {
     try {
       var savedState = localStorage.getItem('employeeState');
       if (savedState) {
         employees = JSON.parse(savedState);
-        updateButtonsState(); // Atualizar visual dos botões
+        updateButtonsState();
       }
     } catch(e) {
-      // Em caso de erro, resetar o estado
       employees = {};
       localStorage.removeItem('employeeState');
     }
   }
-  
-  // Salvar estado no localStorage
+
   function saveState() {
     try {
       localStorage.setItem('employeeState', JSON.stringify(employees));
@@ -109,8 +102,7 @@
       updateStatus('Erro ao salvar estado: ' + e.message);
     }
   }
-  
-  // Atualizar o estado visual dos botões
+
   function updateButtonsState() {
     for (var i = 0; i < buttons.length; i++) {
       var name = buttons[i].getAttribute('data-name');
@@ -121,61 +113,46 @@
       }
     }
   }
-  
-  // Configurar botões
+
   function setupButtons() {
     for (var i = 0; i < buttons.length; i++) {
       buttons[i].onclick = handleButtonClick;
     }
   }
-  
-  // Manipular clique no botão
+
   function handleButtonClick() {
     var name = this.getAttribute('data-name');
     var isWorking = employees[name] && employees[name].isWorking;
-    
+
     if (isWorking) {
-      // Funcionário está a trabalhar, confirmar saída
       if (confirm('Quer terminar o período de trabalho na secção de estofagem?')) {
         endWork(name);
       }
     } else {
-      // Funcionário não está a trabalhar, confirmar entrada
       if (confirm('Quer iniciar o período de trabalho na secção de estofagem?')) {
         startWork(name);
       }
     }
   }
-  
-  // Iniciar período de trabalho
+
   function startWork(name) {
     var now = new Date();
-    
-    // Atualizar estado
-    if (!employees[name]) {
-      employees[name] = {};
-    }
-    
+    if (!employees[name]) employees[name] = {};
     employees[name].isWorking = true;
     employees[name].startTime = now.toISOString();
-    
-    // Salvar estado e atualizar interface
     saveState();
     updateButtonsState();
     updateStatus(name + ' iniciou trabalho às ' + formatTime(now));
   }
-  
-  // Terminar período de trabalho
+
   function endWork(name) {
     if (!employees[name] || !employees[name].isWorking) {
       updateStatus('Erro: ' + name + ' não está em período de trabalho');
       return;
     }
-    
+
     var now = new Date();
     var startTime = new Date(employees[name].startTime);
-    
-    // Preparar dados para enviar
     var data = {
       funcionario: name,
       secao: 'Estofagem',
@@ -183,93 +160,54 @@
       fim: formatTime(now),
       duracao: calculateWorkDuration(startTime, now)
     };
-    
-    // Atualizar estado - Importante fazer isso ANTES de enviar os dados
+
     employees[name].isWorking = false;
     saveState();
     updateButtonsState();
-    
-    // Mostrar status
     updateStatus(name + ' terminou trabalho às ' + formatTime(now) + '. A enviar dados...');
-    
-    // Enviar dados para o servidor
     sendDataViaForm(data);
   }
-  
-  // Calcular duração do trabalho excluindo pausas
+
   function calculateWorkDuration(start, end) {
     var totalMinutes = 0;
     var current = new Date(start);
-    
     while (current < end) {
       var currentTimeStr = formatTime(current);
-      var isBreakTime = false;
-      
-      // Verificar se o momento atual está em período de pausa
-      for (var i = 0; i < breakPeriods.length; i++) {
-        if (currentTimeStr >= breakPeriods[i].start && currentTimeStr < breakPeriods[i].end) {
-          isBreakTime = true;
-          break;
-        }
-      }
-      
-      if (!isBreakTime) {
-        totalMinutes++;
-      }
-      
-      // Avançar um minuto
+      var isBreakTime = breakPeriods.some(function(b) {
+        return currentTimeStr >= b.start && currentTimeStr < b.end;
+      });
+      if (!isBreakTime) totalMinutes++;
       current.setTime(current.getTime() + 60000);
     }
-    
-    // Converter minutos para horas decimais
     return (totalMinutes / 60).toFixed(2);
   }
-  
-  // Formatar hora como HH:MM
+
   function formatTime(date) {
     var hours = date.getHours();
     var minutes = date.getMinutes();
-    
-    // Adicionar zero à esquerda se necessário
-    if (hours < 10) hours = '0' + hours;
-    if (minutes < 10) minutes = '0' + minutes;
-    
-    return hours + ':' + minutes;
+    return (hours < 10 ? '0' : '') + hours + ':' + (minutes < 10 ? '0' : '') + minutes;
   }
-  
-  // Enviar dados via formulário (mais compatível com dispositivos antigos)
+
   function sendDataViaForm(data) {
-    // Salvar dados offline primeiro (garantia)
     saveOfflineData(data);
-    
-    // Mostrar indicador de carregamento
     loadingDiv.style.display = 'block';
-    
-    // Adicionar timestamp para evitar cache
     var timestamp = new Date().getTime();
     dataForm.action = URL + '?t=' + timestamp;
-    
-    // Configurar callback para quando o iframe carregar
     hiddenIframe.onload = function() {
       loadingDiv.style.display = 'none';
       updateStatus('Registo guardado com sucesso!');
       removeFromOfflineData(data);
     };
-    
-    // Configurar timeout para caso o iframe não carregue
     setTimeout(function() {
       if (loadingDiv.style.display === 'block') {
         loadingDiv.style.display = 'none';
         updateStatus('Tempo esgotado. Dados guardados localmente.');
       }
     }, 5000);
-    
-    // Preparar e enviar o formulário
     formData.value = JSON.stringify(data);
     dataForm.submit();
   }
-  
-  // Salvar dados offline para envio posterior
+
   function saveOfflineData(data) {
     try {
       var offlineData = localStorage.getItem('offlineData');
@@ -280,40 +218,27 @@
       updateStatus('Erro ao salvar dados offline: ' + e.message);
     }
   }
-  
-  // Remover dados do armazenamento offline
+
   function removeFromOfflineData(data) {
     try {
       var offlineData = localStorage.getItem('offlineData');
       if (!offlineData) return;
-      
       var dataArray = JSON.parse(offlineData);
-      // Filtrar para remover o item que acabou de ser enviado com sucesso
-      var newArray = [];
-      for (var i = 0; i < dataArray.length; i++) {
-        var item = dataArray[i];
-        if (!(item.funcionario === data.funcionario && 
-              item.inicio === data.inicio &&
-              item.fim === data.fim)) {
-          newArray.push(item);
-        }
-      }
-      
+      var newArray = dataArray.filter(function(item) {
+        return !(item.funcionario === data.funcionario && item.inicio === data.inicio && item.fim === data.fim);
+      });
       localStorage.setItem('offlineData', JSON.stringify(newArray));
     } catch(e) {
       updateStatus('Erro ao remover dados offline: ' + e.message);
     }
   }
-  
-  // Tentar enviar dados offline
+
   function trySendOfflineData() {
     try {
       var offlineData = localStorage.getItem('offlineData');
       if (!offlineData) return;
-      
       var dataArray = JSON.parse(offlineData);
       if (dataArray.length > 0) {
-        // Tentar enviar o primeiro item
         updateStatus('Tentando enviar dados offline...');
         sendDataViaForm(dataArray[0]);
       }
@@ -321,22 +246,17 @@
       updateStatus('Erro ao processar dados offline: ' + e.message);
     }
   }
-  
-  // Atualizar mensagem de status
+
   function updateStatus(message) {
     statusDiv.textContent = message;
     statusDiv.className = 'status active';
-    
     setTimeout(function() {
       statusDiv.className = 'status';
     }, 5000);
   }
-  
-  // Inicializar
+
   loadState();
   setupButtons();
-  
-  // Verificar dados offline a cada minuto
   setInterval(trySendOfflineData, 60000);
 })();
 </script>
