@@ -38,12 +38,6 @@
     margin: 20px auto;
     font-style: italic;
   }
-  #hidden-iframe {
-    display: none;
-    width: 0;
-    height: 0;
-    border: 0;
-  }
 </style>
 
 <h1>Registo Horário - Estofagem</h1>
@@ -55,25 +49,12 @@
 <div id="status" class="status"></div>
 <div id="loading">A processar...</div>
 
-<iframe id="hidden-iframe" name="hidden-iframe"></iframe>
-
-<form id="data-form"
-      action="https://script.google.com/macros/s/AKfycbzmELss6Z2Q8kp65Y5JOxFrqlVulmf_hWDrynjuw57zW3pVBtnnN5juovfbmYjYwQa7/exec"
-      target="hidden-iframe"
-      method="POST"
-      style="display:none;">
-  <input type="hidden" id="form-data" name="data" value="">
-</form>
-
 <script>
 (function() {
   var URL = "https://script.google.com/macros/s/AKfycbzmELss6Z2Q8kp65Y5JOxFrqlVulmf_hWDrynjuw57zW3pVBtnnN5juovfbmYjYwQa7/exec";
   var buttons = document.querySelectorAll('.employee-button');
   var statusDiv = document.getElementById('status');
   var loadingDiv = document.getElementById('loading');
-  var dataForm = document.getElementById('data-form');
-  var formData = document.getElementById('form-data');
-  var hiddenIframe = document.getElementById('hidden-iframe');
 
   var breakPeriods = [
     { start: '10:00', end: '10:10' },
@@ -165,7 +146,7 @@
     saveState();
     updateButtonsState();
     updateStatus(name + ' terminou trabalho às ' + formatTime(now) + '. A enviar dados...');
-    sendDataViaForm(data);
+    sendData(data);
   }
 
   function calculateWorkDuration(start, end) {
@@ -188,62 +169,35 @@
     return (hours < 10 ? '0' : '') + hours + ':' + (minutes < 10 ? '0' : '') + minutes;
   }
 
-  function sendDataViaForm(data) {
-    saveOfflineData(data);
+  function sendData(data) {
     loadingDiv.style.display = 'block';
-    var timestamp = new Date().getTime();
-    dataForm.action = URL + '?t=' + timestamp;
-    hiddenIframe.onload = function() {
+
+    var encoded = 'data=' + encodeURIComponent(JSON.stringify(data));
+    
+    function done(success) {
       loadingDiv.style.display = 'none';
-      updateStatus('Registo guardado com sucesso!');
-      removeFromOfflineData(data);
-    };
-    setTimeout(function() {
-      if (loadingDiv.style.display === 'block') {
-        loadingDiv.style.display = 'none';
-        updateStatus('Tempo esgotado. Dados guardados localmente.');
-      }
-    }, 5000);
-    formData.value = JSON.stringify(data);
-    dataForm.submit();
-  }
-
-  function saveOfflineData(data) {
-    try {
-      var offlineData = localStorage.getItem('offlineData');
-      var dataArray = offlineData ? JSON.parse(offlineData) : [];
-      dataArray.push(data);
-      localStorage.setItem('offlineData', JSON.stringify(dataArray));
-    } catch(e) {
-      updateStatus('Erro ao salvar dados offline: ' + e.message);
+      updateStatus(success ? 'Registo guardado com sucesso!' : 'Falha ao enviar dados.');
     }
-  }
 
-  function removeFromOfflineData(data) {
-    try {
-      var offlineData = localStorage.getItem('offlineData');
-      if (!offlineData) return;
-      var dataArray = JSON.parse(offlineData);
-      var newArray = dataArray.filter(function(item) {
-        return !(item.funcionario === data.funcionario && item.inicio === data.inicio && item.fim === data.fim);
-      });
-      localStorage.setItem('offlineData', JSON.stringify(newArray));
-    } catch(e) {
-      updateStatus('Erro ao remover dados offline: ' + e.message);
-    }
-  }
-
-  function trySendOfflineData() {
-    try {
-      var offlineData = localStorage.getItem('offlineData');
-      if (!offlineData) return;
-      var dataArray = JSON.parse(offlineData);
-      if (dataArray.length > 0) {
-        updateStatus('Tentando enviar dados offline...');
-        sendDataViaForm(dataArray[0]);
-      }
-    } catch(e) {
-      updateStatus('Erro ao processar dados offline: ' + e.message);
+    if (window.fetch) {
+      fetch(URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: encoded
+      })
+      .then(res => res.ok ? done(true) : done(false))
+      .catch(() => done(false));
+    } else {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', URL, true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.onload = function() {
+        done(xhr.status === 200);
+      };
+      xhr.onerror = function() {
+        done(false);
+      };
+      xhr.send(encoded);
     }
   }
 
@@ -257,6 +211,5 @@
 
   loadState();
   setupButtons();
-  setInterval(trySendOfflineData, 60000);
 })();
 </script>
