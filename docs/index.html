@@ -184,6 +184,7 @@
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onload = function() {
       loadingDiv.style.display = 'none';
+      console.log("Response:", xhr.status, xhr.responseText); // <== log this
       var ok = xhr.status === 200 && xhr.responseText === 'OK';
       updateStatus(ok ? 'Registo guardado com sucesso!' : ('Erro: ' + xhr.responseText));
     };
