@@ -170,36 +170,36 @@
   }
 
   function sendData(data) {
-    loadingDiv.style.display = 'block';
+  loadingDiv.style.display = 'block';
 
-    var encoded = 'data=' + encodeURIComponent(JSON.stringify(data));
-    
-    function done(success, message) {
-      loadingDiv.style.display = 'none';
-      updateStatus(success ? 'Registo guardado com sucesso!' : ('Erro: ' + (message || 'Falha ao enviar dados.')));
-    }
+  var encoded = 'data=' + encodeURIComponent(JSON.stringify(data));
 
-    if (window.fetch) {
-      fetch(URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: encoded
-      })
-      .then(res => res.text().then(text => done(res.ok, text)))
-      .catch(err => done(false, err.message));
-    } else {
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', URL, true);
-      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-      xhr.onload = function() {
-        done(xhr.status === 200, xhr.responseText);
-      };
-      xhr.onerror = function() {
-        done(false, 'Erro de rede.');
-      };
-      xhr.send(encoded);
-    }
+  function done(success, message) {
+    loadingDiv.style.display = 'none';
+    updateStatus(success ? 'Registo guardado com sucesso!' : ('Erro: ' + (message || 'Falha ao enviar dados.')));
   }
+
+  if (window.fetch) {
+    fetch(URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: encoded
+    })
+    .then(res => res.text().then(text => done(res.ok, text)))
+    .catch(err => done(false, err.message));
+  } else {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', URL, true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onload = function() {
+      done(xhr.status === 200, xhr.responseText);
+    };
+    xhr.onerror = function() {
+      done(false, 'Erro de rede.');
+    };
+    xhr.send(encoded);
+  }
+}
 
   function updateStatus(message) {
     statusDiv.textContent = message;
