@@ -169,7 +169,7 @@
     return (hours < 10 ? '0' : '') + hours + ':' + (minutes < 10 ? '0' : '') + minutes;
   }
 
-  function sendData(data) {
+function sendData(data) {
   loadingDiv.style.display = 'block';
 
   var encoded = 'data=' + encodeURIComponent(JSON.stringify(data));
