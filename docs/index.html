@@ -97,7 +97,7 @@
 
   function setupButtons() {
     for (var i = 0; i < buttons.length; i++) {
-      buttons[i].onclick = handleButtonClick;
+      buttons[i].addEventListener('click', handleButtonClick, false);
     }
   }
 
@@ -154,9 +154,14 @@
     var current = new Date(start);
     while (current < end) {
       var currentTimeStr = formatTime(current);
-      var isBreakTime = breakPeriods.some(function(b) {
-        return currentTimeStr >= b.start && currentTimeStr < b.end;
-      });
+      var isBreakTime = false;
+      for (var i = 0; i < breakPeriods.length; i++) {
+        var b = breakPeriods[i];
+        if (currentTimeStr >= b.start && currentTimeStr < b.end) {
+          isBreakTime = true;
+          break;
+        }
+      }
       if (!isBreakTime) totalMinutes++;
       current.setTime(current.getTime() + 60000);
     }
@@ -169,37 +174,25 @@
     return (hours < 10 ? '0' : '') + hours + ':' + (minutes < 10 ? '0' : '') + minutes;
   }
 
-function sendData(data) {
-  loadingDiv.style.display = 'block';
+  function sendData(data) {
+    loadingDiv.style.display = 'block';
 
-  var encoded = 'data=' + encodeURIComponent(JSON.stringify(data));
+    var encoded = 'data=' + encodeURIComponent(JSON.stringify(data));
 
-  function done(success, message) {
-    loadingDiv.style.display = 'none';
-    updateStatus(success ? 'Registo guardado com sucesso!' : ('Erro: ' + (message || 'Falha ao enviar dados.')));
-  }
-
-  if (window.fetch) {
-    fetch(URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: encoded
-    })
-    .then(res => res.text().then(text => done(res.ok, text)))
-    .catch(err => done(false, err.message));
-  } else {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', URL, true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onload = function() {
-      done(xhr.status === 200, xhr.responseText);
+      loadingDiv.style.display = 'none';
+      var ok = xhr.status === 200 && xhr.responseText === 'OK';
+      updateStatus(ok ? 'Registo guardado com sucesso!' : ('Erro: ' + xhr.responseText));
     };
     xhr.onerror = function() {
-      done(false, 'Erro de rede.');
+      loadingDiv.style.display = 'none';
+      updateStatus('Erro de rede.');
     };
     xhr.send(encoded);
   }
-}
 
   function updateStatus(message) {
     statusDiv.textContent = message;
