@@ -184,10 +184,12 @@
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onload = function() {
       loadingDiv.style.display = 'none';
-      console.log("Response:", xhr.status, xhr.responseText);
-      var ok = xhr.status === 200 && xhr.responseText === 'OK';
-      updateStatus(success ? 'Registo guardado com sucesso!' : ('Erro: ' + response));
-    };
+      var response = xhr.responseText ? xhr.responseText.trim() : '';
+      var isSuccess = xhr.status === 200;
+
+      updateStatus(isSuccess ? 'Registo guardado com sucesso!' : ('Erro: ' + response));
+  };
+    
     xhr.onerror = function() {
       loadingDiv.style.display = 'none';
       updateStatus('Erro de rede.');
