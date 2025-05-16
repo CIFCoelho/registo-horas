@@ -174,9 +174,9 @@
 
     var encoded = 'data=' + encodeURIComponent(JSON.stringify(data));
     
-    function done(success) {
+    function done(success, message) {
       loadingDiv.style.display = 'none';
-      updateStatus(success ? 'Registo guardado com sucesso!' : 'Falha ao enviar dados.');
+      updateStatus(success ? 'Registo guardado com sucesso!' : ('Erro: ' + (message || 'Falha ao enviar dados.')));
     }
 
     if (window.fetch) {
@@ -185,17 +185,17 @@
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: encoded
       })
-      .then(res => res.ok ? done(true) : done(false))
-      .catch(() => done(false));
+      .then(res => res.text().then(text => done(res.ok, text)))
+      .catch(err => done(false, err.message));
     } else {
       var xhr = new XMLHttpRequest();
       xhr.open('POST', URL, true);
       xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
       xhr.onload = function() {
-        done(xhr.status === 200);
+        done(xhr.status === 200, xhr.responseText);
       };
       xhr.onerror = function() {
-        done(false);
+        done(false, 'Erro de rede.');
       };
       xhr.send(encoded);
     }
