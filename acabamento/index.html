@@ -40,6 +40,9 @@
     .employee.active {
       background-color: #34a853;
     }
+    .employee.selected {
+      background-color: #6c757d;
+    }
     .of-display {
       font-weight: bold;
       font-size: 20px;
@@ -79,6 +82,16 @@
       font-size: 28px;
       margin-bottom: 10px;
     }
+    #cancel-btn {
+      font-size: 22px;
+      margin: 10px;
+      padding: 0.5rem 1rem;
+      background-color: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
     #status {
       text-align: center;
       margin: 10px;
@@ -115,7 +128,9 @@
         var name = names[i];
         var state = employees[name];
         var div = document.createElement('div');
-        div.className = 'employee' + (state && state.isWorking ? ' active' : '');
+        div.className = 'employee';
+        if (state && state.isWorking) div.classList.add('active');
+        if (selectedOFChange === name) div.classList.add('selected');
         div.onclick = makeNameClick(name);
 
         var span = document.createElement('span');
@@ -139,6 +154,7 @@
         var state = employees[name];
         if (!state || !state.isWorking) {
           selectedOFChange = name;
+          renderButtons();
           showKeypad();
         } else {
           sendRecord(name, state.of, state.startTime, now);
@@ -155,6 +171,7 @@
         var state = employees[name];
         if (state && state.isWorking) {
           selectedOFChange = name;
+          renderButtons();
           showKeypad();
         }
       };
@@ -181,9 +198,17 @@
         }
         html += '</div>';
       }
+      html += '<button id="cancel-btn">↩ Cancelar</button>';
       keypadDiv.innerHTML = html;
 
       var display = document.getElementById('of-display');
+      var cancelBtn = document.getElementById('cancel-btn');
+      cancelBtn.onclick = function() {
+        selectedOFChange = null;
+        keypadDiv.style.display = 'none';
+        renderButtons();
+      };
+
       var keys = keypadDiv.querySelectorAll('.key');
       for (var i = 0; i < keys.length; i++) {
         keys[i].onclick = function() {
@@ -203,9 +228,10 @@
               of: input
             };
             saveState();
-            renderButtons();
             keypadDiv.style.display = 'none';
-            updateStatus(selectedOFChange + ' iniciou OF ' + input);
+            selectedOFChange = null;
+            renderButtons();
+            updateStatus(employees[selectedOFChange] + ' iniciou OF ' + input);
           } else {
             input += val;
           }
