@@ -1,211 +1,293 @@
-<!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Registo Horário</title>
-<style>
-  body {
-    font-family: sans-serif;
-    max-width: 480px;
-    margin: 0 auto;
-    padding: 1rem;
-    text-align: center;
-  }
-  .employee-button {
-    width: 90%;
-    height: 80px;
-    margin: 15px auto;
-    font-size: 24px;
-    border-radius: 10px;
-    background-color: #4285f4;
-    color: white;
-    border: none;
-  }
-  .employee-button.active {
-    background-color: #34a853;
-  }
-  .status {
-    margin-top: 20px;
-    padding: 10px;
-    border-radius: 5px;
-    font-weight: bold;
-  }
-  .active {
-    background-color: #d4edda;
-    color: #155724;
-  }
-  #loading {
-    display: none;
-    margin: 20px auto;
-    font-style: italic;
-  }
-</style>
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acabamento</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    #container {
+      display: flex;
+      flex-direction: row;
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 1rem;
+      box-sizing: border-box;
+    }
+    #employee-list {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    .employee {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem;
+      border-radius: 12px;
+      font-size: 22px;
+      background-color: #4285f4;
+      color: white;
+      width: 100%;
+      box-sizing: border-box;
+      cursor: pointer;
+    }
+    .employee.active {
+      background-color: #34a853;
+    }
+    .of-display {
+      font-weight: bold;
+      font-size: 20px;
+      background-color: white;
+      color: black;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      line-height: 60px;
+      text-align: center;
+      cursor: pointer;
+    }
+    #of-keypad {
+      flex: 1;
+      text-align: center;
+      display: none;
+    }
+    .key-row {
+      display: flex;
+      justify-content: center;
+      margin: 5px 0;
+    }
+    .key {
+      width: 60px;
+      height: 60px;
+      font-size: 24px;
+      margin: 4px;
+      border: none;
+      border-radius: 8px;
+      background: #eee;
+      cursor: pointer;
+    }
+    .key.wide {
+      width: 90px;
+    }
+    #of-display {
+      font-size: 28px;
+      margin-bottom: 10px;
+    }
+    #status {
+      text-align: center;
+      margin: 10px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1 style="text-align:center;">Acabamento</h1>
+  <div id="container">
+    <div id="employee-list"></div>
+    <div id="of-keypad"></div>
+  </div>
+  <div id="status"></div>
 
-<h1>Registo Horário - Estofagem</h1>
-<div id="employee-buttons">
-  <button class="employee-button" data-name="Antónia">Antónia</button>
-  <button class="employee-button" data-name="Diana">Diana</button>
-  <button class="employee-button" data-name="Teresa">Teresa</button>
-</div>
-<div id="status" class="status"></div>
-<div id="loading">A processar...</div>
+  <script>
+  (function() {
+    var URL = "https://script.google.com/macros/s/AKfycbxf1CJR2OG2Io90pVLmDqHPc34dj6bicxUQtL48vKVaUlsua2OZZQsoDM7uXpgjQbL5/exec";
+    var names = ["Cristina", "Teresa", "Sónia", "Inês", "Diana", "Antónia"];
+    var breakPeriods = [
+      { start: '10:00', end: '10:10' },
+      { start: '12:00', end: '13:00' }
+    ];
+    var employees = {};
+    var selectedOFChange = null;
 
-<script>
-(function() {
-  var URL = "https://script.google.com/macros/s/AKfycbxf1CJR2OG2Io90pVLmDqHPc34dj6bicxUQtL48vKVaUlsua2OZZQsoDM7uXpgjQbL5/exec";
-  var buttons = document.querySelectorAll('.employee-button');
-  var statusDiv = document.getElementById('status');
-  var loadingDiv = document.getElementById('loading');
+    var listDiv = document.getElementById('employee-list');
+    var keypadDiv = document.getElementById('of-keypad');
+    var statusDiv = document.getElementById('status');
 
-  var breakPeriods = [
-    { start: '10:00', end: '10:10' },
-    { start: '12:00', end: '13:00' }
-  ];
+    function renderButtons() {
+      listDiv.innerHTML = '';
+      for (var i = 0; i < names.length; i++) {
+        var name = names[i];
+        var state = employees[name];
+        var div = document.createElement('div');
+        div.className = 'employee' + (state && state.isWorking ? ' active' : '');
+        div.onclick = makeNameClick(name);
 
-  var employees = {};
+        var span = document.createElement('span');
+        span.textContent = name;
+        div.appendChild(span);
 
-  function loadState() {
-    try {
-      var savedState = localStorage.getItem('employeeState');
-      if (savedState) {
-        employees = JSON.parse(savedState);
-        updateButtonsState();
+        var of = document.createElement('div');
+        of.className = 'of-display';
+        of.textContent = state && state.of ? state.of : '+';
+        of.onclick = makeOFClick(name);
+        div.appendChild(of);
+
+        listDiv.appendChild(div);
       }
-    } catch(e) {
-      employees = {};
-      localStorage.removeItem('employeeState');
-    }
-  }
-
-  function saveState() {
-    try {
-      localStorage.setItem('employeeState', JSON.stringify(employees));
-    } catch(e) {
-      updateStatus('Erro ao salvar estado: ' + e.message);
-    }
-  }
-
-  function updateButtonsState() {
-    for (var i = 0; i < buttons.length; i++) {
-      var name = buttons[i].getAttribute('data-name');
-      if (employees[name] && employees[name].isWorking) {
-        buttons[i].className = 'employee-button active';
-      } else {
-        buttons[i].className = 'employee-button';
-      }
-    }
-  }
-
-  function setupButtons() {
-    for (var i = 0; i < buttons.length; i++) {
-      buttons[i].addEventListener('click', handleButtonClick, false);
-    }
-  }
-
-  function handleButtonClick() {
-    var name = this.getAttribute('data-name');
-    var isWorking = employees[name] && employees[name].isWorking;
-
-    if (isWorking) {
-      if (confirm('Quer terminar o período de trabalho na secção de estofagem?')) {
-        endWork(name);
-      }
-    } else {
-      if (confirm('Quer iniciar o período de trabalho na secção de estofagem?')) {
-        startWork(name);
-      }
-    }
-  }
-
-  function startWork(name) {
-    var now = new Date();
-    if (!employees[name]) employees[name] = {};
-    employees[name].isWorking = true;
-    employees[name].startTime = now.toISOString();
-    saveState();
-    updateButtonsState();
-    updateStatus(name + ' iniciou trabalho às ' + formatTime(now));
-  }
-
-  function endWork(name) {
-    if (!employees[name] || !employees[name].isWorking) {
-      updateStatus('Erro: ' + name + ' não está em período de trabalho');
-      return;
     }
 
-    var now = new Date();
-    var startTime = new Date(employees[name].startTime);
-    var data = {
-      funcionario: name,
-      secao: 'Estofagem',
-      inicio: formatTime(startTime),
-      fim: formatTime(now),
-      duracao: calculateWorkDuration(startTime, now)
-    };
-
-    employees[name].isWorking = false;
-    saveState();
-    updateButtonsState();
-    updateStatus(name + ' terminou trabalho às ' + formatTime(now) + '. A enviar dados...');
-    sendData(data);
-  }
-
-  function calculateWorkDuration(start, end) {
-    var totalMinutes = 0;
-    var current = new Date(start);
-    while (current < end) {
-      var currentTimeStr = formatTime(current);
-      var isBreakTime = false;
-      for (var i = 0; i < breakPeriods.length; i++) {
-        var b = breakPeriods[i];
-        if (currentTimeStr >= b.start && currentTimeStr < b.end) {
-          isBreakTime = true;
-          break;
+    function makeNameClick(name) {
+      return function(event) {
+        if (event.target.className.indexOf('of-display') !== -1) return;
+        var now = new Date();
+        var state = employees[name];
+        if (!state || !state.isWorking) {
+          selectedOFChange = name;
+          showKeypad();
+        } else {
+          sendRecord(name, state.of, state.startTime, now);
+          employees[name] = null;
+          saveState();
+          renderButtons();
+          updateStatus(name + ' terminou turno.');
         }
-      }
-      if (!isBreakTime) totalMinutes++;
-      current.setTime(current.getTime() + 60000);
+      };
     }
-    return (totalMinutes / 60).toFixed(2);
-  }
 
-  function formatTime(date) {
-    var hours = date.getHours();
-    var minutes = date.getMinutes();
-    return (hours < 10 ? '0' : '') + hours + ':' + (minutes < 10 ? '0' : '') + minutes;
-  }
+    function makeOFClick(name) {
+      return function() {
+        var state = employees[name];
+        if (state && state.isWorking) {
+          selectedOFChange = name;
+          showKeypad();
+        }
+      };
+    }
 
-  function sendData(data) {
-    loadingDiv.style.display = 'block';
+    function showKeypad() {
+      var input = '';
+      keypadDiv.style.display = 'block';
+      var html = '<div id="of-display">OF: </div>';
+      var layout = [
+        ['1','2','3'],
+        ['4','5','6'],
+        ['7','8','9'],
+        ['DEL','0','OK']
+      ];
 
-    var encoded = 'data=' + encodeURIComponent(JSON.stringify(data));
+      for (var r = 0; r < layout.length; r++) {
+        html += '<div class="key-row">';
+        for (var c = 0; c < layout[r].length; c++) {
+          var val = layout[r][c];
+          var cls = 'key';
+          if (val === 'DEL' || val === 'OK') cls += ' wide';
+          html += '<button class="' + cls + '">' + val + '</button>';
+        }
+        html += '</div>';
+      }
+      keypadDiv.innerHTML = html;
 
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', URL, true);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-      loadingDiv.style.display = 'none';
-      var response = xhr.responseText ? xhr.responseText.trim() : '';
-      var isSuccess = xhr.status === 200;
+      var display = document.getElementById('of-display');
+      var keys = keypadDiv.querySelectorAll('.key');
+      for (var i = 0; i < keys.length; i++) {
+        keys[i].onclick = function() {
+          var val = this.textContent;
+          if (val === 'DEL') {
+            input = input.slice(0, -1);
+          } else if (val === 'OK') {
+            if (!input) return;
+            var now = new Date();
+            var state = employees[selectedOFChange];
+            if (state && state.isWorking) {
+              sendRecord(selectedOFChange, state.of, state.startTime, now);
+            }
+            employees[selectedOFChange] = {
+              isWorking: true,
+              startTime: now.toISOString(),
+              of: input
+            };
+            saveState();
+            renderButtons();
+            keypadDiv.style.display = 'none';
+            updateStatus(selectedOFChange + ' iniciou OF ' + input);
+          } else {
+            input += val;
+          }
+          display.textContent = 'OF: ' + input;
+        };
+      }
+    }
 
-      updateStatus(isSuccess ? 'Registo guardado com sucesso!' : ('Erro: ' + response));
-  };
-    
-    xhr.onerror = function() {
-      loadingDiv.style.display = 'none';
-      updateStatus('Dados Registados.');
-    };
-    xhr.send(encoded);
-  }
+    function sendRecord(name, of, startISO, endDate) {
+      var start = new Date(startISO);
+      var duration = calculateDuration(start, endDate);
+      var data = {
+        funcionario: name,
+        secao: 'Acabamento',
+        of: of,
+        inicio: formatTime(start),
+        fim: formatTime(endDate),
+        duracao: duration
+      };
+      sendData(data);
+    }
 
-  function updateStatus(message) {
-    statusDiv.textContent = message;
-    statusDiv.className = 'status active';
-    setTimeout(function() {
-      statusDiv.className = 'status';
-    }, 5000);
-  }
+    function calculateDuration(start, end) {
+      var mins = 0;
+      var cur = new Date(start);
+      while (cur < end) {
+        var time = formatTime(cur);
+        var isBreak = false;
+        for (var i = 0; i < breakPeriods.length; i++) {
+          var b = breakPeriods[i];
+          if (time >= b.start && time < b.end) {
+            isBreak = true;
+            break;
+          }
+        }
+        if (!isBreak) mins++;
+        cur.setTime(cur.getTime() + 60000);
+      }
+      return (mins / 60).toFixed(2);
+    }
 
-  loadState();
-  setupButtons();
-})();
-</script>
+    function formatTime(d) {
+      var h = d.getHours();
+      var m = d.getMinutes();
+      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    }
+
+    function sendData(data) {
+      var encoded = 'data=' + encodeURIComponent(JSON.stringify(data));
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', URL, true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.onload = function() {
+        updateStatus(xhr.status === 200 ? '✔ Registo enviado' : 'Erro: ' + xhr.responseText);
+      };
+      xhr.onerror = function() {
+        updateStatus('Erro de rede.');
+      };
+      xhr.send(encoded);
+    }
+
+    function updateStatus(msg) {
+      statusDiv.textContent = msg;
+      setTimeout(function() { statusDiv.textContent = ''; }, 4000);
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem('stateAcabamento', JSON.stringify(employees));
+      } catch (e) {}
+    }
+
+    function loadState() {
+      try {
+        var data = localStorage.getItem('stateAcabamento');
+        if (data) employees = JSON.parse(data);
+      } catch (e) {}
+    }
+
+    loadState();
+    renderButtons();
+  })();
+  </script>
+</body>
+</html>
