@@ -111,16 +111,16 @@
   </div>
   <div id="status"></div>
 
+  <script src="../config/acabamento.js"></script>
   <script src="../js/script.js"></script>
 
   <script>
   (function() {
-    var URL = "https://script.google.com/macros/s/AKfycbxf1CJR2OG2Io90pVLmDqHPc34dj6bicxUQtL48vKVaUlsua2OZZQsoDM7uXpgjQbL5/exec";
-    var names = ["Cristina", "Teresa", "Sónia", "Inês", "Diana", "Antónia"];
-    var breakPeriods = [
-      { start: '10:00', end: '10:10' },
-      { start: '12:00', end: '13:00' }
-    ];
+    const cfg = window.SECTION_CONFIG || {};
+    var URL = cfg.webAppUrl;
+    var names = cfg.names;
+    var breakPeriods = cfg.breakPeriods;
+    
     var employees = {};
     var selectedOFChange = null;
 
