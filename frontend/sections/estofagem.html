@@ -250,7 +250,7 @@
       var duration = calculateDuration(start, endDate);
       var data = {
         funcionario: name,
-        secao: 'Estofagem',
+        secao: cfg.section,
         of: of,
         inicio: formatTime(start),
         fim: formatTime(endDate),
@@ -305,7 +305,7 @@
 
     function saveState() {
       try {
-        localStorage.setItem('stateEstofagem', JSON.stringify(employees));
+        localStorage.setItem('state_' + cfg.section, JSON.stringify(employees));
       } catch (e) {}
     }
 

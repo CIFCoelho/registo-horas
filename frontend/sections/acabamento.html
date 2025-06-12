@@ -251,7 +251,7 @@
       var duration = calculateDuration(start, endDate);
       var data = {
         funcionario: name,
-        secao: 'Acabamento',
+        secao: cfg.section,
         of: of,
         inicio: formatTime(start),
         fim: formatTime(endDate),
@@ -306,13 +306,13 @@
 
     function saveState() {
       try {
-        localStorage.setItem('stateAcabamento', JSON.stringify(employees));
+        localStorage.setItem('state_' + cfg.section, JSON.stringify(employees));
       } catch (e) {}
     }
 
     function loadState() {
       try {
-        var data = localStorage.getItem('stateAcabamento');
+        var data = localStorage.getItem('state_' + cfg.section);
         if (data) employees = JSON.parse(data);
       } catch (e) {}
     }
