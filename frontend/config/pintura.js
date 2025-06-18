@@ -1,14 +1,14 @@
 window.SECTION_CONFIG = {
   /* Name sent to the column: “Secção” */
-  section: 'Costura',
+  section: 'Pintura',
 
-  /* URL AppsScript Update (DB) */
+  /* URL AppsScript Update */
   webAppUrl: 'https://script.google.com/macros/s/AKfycbxf1CJR2OG2Io90pVLmDqHPc34dj6bicxUQtL48vKVaUlsua2OZZQsoDM7uXpgjQbL5/exec',
 
-  sheetName: 'Costura',
+  sheetName: 'Pintura',
 
   /* Buttons for each person */
-  names: ['Diana', 'Sónia'],
+  names: ['Teresa', 'Inês', 'Pedro'],
 
   /* Break Periods */
   breakPeriods: [
