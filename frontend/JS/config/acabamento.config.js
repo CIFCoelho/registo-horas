@@ -1,5 +1,5 @@
 window.SECTION_CONFIG = {
   section: 'Acabamento',
-  webAppUrl: 'https://script.google.com/macros/s/AKfycbxf1CJR2OG2Io90pVLmDqHPc34dj6bicxUQtL48vKVaUlsua2OZZQsoDM7uXpgjQbL5/exec',
+  webAppUrl: 'https://script.google.com/macros/s/AKfycby__sFDm2F41Hv5XkVrvYzUuaTTxUNMJQZ_Qo8wHsfOQ5CTuUmNc-Y_w7yY9bqb0suF/exec',
   names: ['Cristina', 'Teresa', 'Sónia', 'Inês', 'Diana', 'Antónia']
 };
