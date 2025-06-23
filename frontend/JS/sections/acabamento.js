@@ -5,19 +5,17 @@ document.addEventListener('DOMContentLoaded', function () {
   var status = document.getElementById('status');
   var activeEmployee = null;
   var currentOF = '';
-  var activeSessions = {}; // Guarda OF atual por funcionário
+  var activeSessions = {};
 
-  // Restaura sessões anteriores (se houver)
   if (localStorage.getItem('activeSessions')) {
     activeSessions = JSON.parse(localStorage.getItem('activeSessions'));
   }
 
-  // Cria os botões dos funcionários
   config.names.forEach(function (name) {
     var btn = document.createElement('button');
     btn.className = 'employee';
     btn.innerHTML = '<span>' + name + '</span><span class="of-display">+</span>';
-    
+
     btn.querySelector('.of-display').onclick = function (e) {
       e.stopPropagation();
       if (activeSessions[name]) {
@@ -27,20 +25,26 @@ document.addEventListener('DOMContentLoaded', function () {
 
     btn.onclick = function () {
       if (!activeSessions[name]) {
-        handleEmployeeClick(name, btn); // Início de turno
+        handleEmployeeClick(name, btn);
       } else {
-        endShift(name, btn); // Terminar turno
+        endShift(name, btn);
       }
     };
 
     employeeList.appendChild(btn);
 
-    // Se estava em turno antes do refresh, recupera
     if (activeSessions[name]) {
       btn.classList.add('active');
       btn.querySelector('.of-display').textContent = activeSessions[name];
     }
   });
+
+  function sendPayload(data, url) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
+  }
 
   function handleEmployeeClick(name, btn) {
     activeEmployee = name;
@@ -51,15 +55,12 @@ document.addEventListener('DOMContentLoaded', function () {
   function handleOFChange(name, btn) {
     activeEmployee = name;
     currentOF = '';
-    showKeypad(btn, true); // modo de troca
+    showKeypad(btn, true);
     highlightSelected(btn);
   }
 
   function highlightSelected(selectedBtn) {
-    var allButtons = document.querySelectorAll('.employee');
-    for (var i = 0; i < allButtons.length; i++) {
-      allButtons[i].classList.remove('selected');
-    }
+    document.querySelectorAll('.employee').forEach(btn => btn.classList.remove('selected'));
     selectedBtn.classList.add('selected');
   }
 
@@ -123,42 +124,35 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function sendAction(btn, isSwitchingOF) {
     var now = new Date();
-    var time = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+    var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
 
     var payloads = [];
 
     if (isSwitchingOF) {
       payloads.push({
-        section: config.section,
-        employee: activeEmployee,
+        secao: config.section,
+        funcionario: activeEmployee,
         of: activeSessions[activeEmployee],
-        action: 'end',
-        time: time
+        acao: 'end',
+        hora: hora
       });
     }
 
     payloads.push({
-      section: config.section,
-      employee: activeEmployee,
+      secao: config.section,
+      funcionario: activeEmployee,
       of: currentOF,
-      action: 'start',
-      time: time
+      acao: 'start',
+      hora: hora
     });
 
-    payloads.forEach(payload => {
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', config.webAppUrl, true);
-      xhr.setRequestHeader('Content-Type', 'text/plain');
-      xhr.send(JSON.stringify(payload));
-    });
+    payloads.forEach(payload => sendPayload(payload, config.webAppUrl));
 
-    // Atualiza interface
     activeSessions[activeEmployee] = currentOF;
     localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
     btn.classList.add('active');
     btn.querySelector('.of-display').textContent = currentOF;
 
-    // Reset estado
     status.textContent = `Registado: ${activeEmployee} [${currentOF}]`;
     status.style.color = 'green';
     currentOF = '';
@@ -168,29 +162,25 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function endShift(name, btn) {
-  var now = new Date();
-  var time = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+    var now = new Date();
+    var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
 
-  var payload = {
-    section: config.section,
-    employee: name,
-    of: activeSessions[name],
-    action: 'end',
-    time: time
-  };
+    var payload = {
+      secao: config.section,
+      funcionario: name,
+      of: activeSessions[name],
+      acao: 'end',
+      hora: hora
+    };
 
-  var xhr = new XMLHttpRequest();
-  xhr.open('POST', config.webAppUrl, true);
-  xhr.setRequestHeader('Content-Type', 'text/plain');
-  xhr.send('data=' + encodeURIComponent(JSON.stringify(payload)));
+    sendPayload(payload, config.webAppUrl);
 
-  // Atualiza interface
-  delete activeSessions[name];
-  localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
-  btn.classList.remove('active');
-  btn.querySelector('.of-display').textContent = '+';
+    delete activeSessions[name];
+    localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
+    btn.classList.remove('active');
+    btn.querySelector('.of-display').textContent = '+';
 
-  status.textContent = `Turno fechado: ${name}`;
-  status.style.color = 'orange';
-}
+    status.textContent = `Turno fechado: ${name}`;
+    status.style.color = 'orange';
+  }
 });
