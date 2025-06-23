@@ -1,0 +1,92 @@
+body {
+  font-family: sans-serif;
+  margin: 0;
+  padding: 0;
+}
+#container {
+  display: flex;
+  flex-direction: row;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+#employee-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+.employee {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-radius: 12px;
+  font-size: 22px;
+  background-color: #4285f4;
+  color: white;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.employee.active {
+  background-color: #34a853;
+}
+.employee.selected {
+  background-color: #6c757d;
+}
+.of-display {
+  font-weight: bold;
+  font-size: 20px;
+  background-color: white;
+  color: black;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  line-height: 60px;
+  text-align: center;
+  cursor: pointer;
+}
+#of-keypad {
+  flex: 1;
+  text-align: center;
+  display: none;
+}
+.key-row {
+  display: flex;
+  justify-content: center;
+  margin: 5px 0;
+}
+.key {
+  width: 60px;
+  height: 60px;
+  font-size: 24px;
+  margin: 4px;
+  border: none;
+  border-radius: 8px;
+  background: #eee;
+  cursor: pointer;
+}
+.key.wide {
+  width: 90px;
+}
+#of-display {
+  font-size: 28px;
+  margin-bottom: 10px;
+}
+#cancel-btn {
+  font-size: 22px;
+  margin: 10px;
+  padding: 0.5rem 1rem;
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+#status {
+  text-align: center;
+  margin: 10px;
+  font-weight: bold;
+}
