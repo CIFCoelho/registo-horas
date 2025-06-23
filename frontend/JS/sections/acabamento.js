@@ -22,7 +22,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     btn.onclick = function () {
       if (!activeSessions[name]) {
-        handleEmployeeClick(name, btn);
+        handleEmployeeClick(name, btn); // Início de turno
+      } else {
+        endShift(name, btn); // Terminar turno
       }
     };
 
@@ -152,4 +154,30 @@ document.addEventListener('DOMContentLoaded', function () {
     keypad.innerHTML = '';
     document.querySelectorAll('.employee').forEach(b => b.classList.remove('selected'));
   }
+
+  function endShift(name, btn) {
+  var now = new Date();
+  var time = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+
+  var payload = {
+    section: config.section,
+    employee: name,
+    of: activeSessions[name],
+    action: 'end',
+    time: time
+  };
+
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', config.webAppUrl, true);
+  xhr.setRequestHeader('Content-Type', 'text/plain');
+  xhr.send(JSON.stringify(payload));
+
+  // Atualiza interface
+  delete activeSessions[name];
+  btn.classList.remove('active');
+  btn.querySelector('.of-display').textContent = '+';
+
+  status.textContent = `Turno fechado: ${name}`;
+  status.style.color = 'orange';
+}
 });
