@@ -7,6 +7,11 @@ document.addEventListener('DOMContentLoaded', function () {
   var currentOF = '';
   var activeSessions = {}; // Guarda OF atual por funcionário
 
+  // Restaura sessões anteriores (se houver)
+  if (localStorage.getItem('activeSessions')) {
+    activeSessions = JSON.parse(localStorage.getItem('activeSessions'));
+  }
+
   // Cria os botões dos funcionários
   config.names.forEach(function (name) {
     var btn = document.createElement('button');
@@ -29,6 +34,12 @@ document.addEventListener('DOMContentLoaded', function () {
     };
 
     employeeList.appendChild(btn);
+
+    // Se estava em turno antes do refresh, recupera
+    if (activeSessions[name]) {
+      btn.classList.add('active');
+      btn.querySelector('.of-display').textContent = activeSessions[name];
+    }
   });
 
   function handleEmployeeClick(name, btn) {
@@ -143,6 +154,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Atualiza interface
     activeSessions[activeEmployee] = currentOF;
+    localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
     btn.classList.add('active');
     btn.querySelector('.of-display').textContent = currentOF;
 
@@ -174,6 +186,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Atualiza interface
   delete activeSessions[name];
+  localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
   btn.classList.remove('active');
   btn.querySelector('.of-display').textContent = '+';
 
