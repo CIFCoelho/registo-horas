@@ -182,7 +182,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var xhr = new XMLHttpRequest();
   xhr.open('POST', config.webAppUrl, true);
   xhr.setRequestHeader('Content-Type', 'text/plain');
-  xhr.send(JSON.stringify(payload));
+  xhr.send('data=' + encodeURIComponent(JSON.stringify(payload)));
 
   // Atualiza interface
   delete activeSessions[name];
