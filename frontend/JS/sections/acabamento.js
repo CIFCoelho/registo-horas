@@ -130,7 +130,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (isSwitchingOF) {
       payloads.push({
-        secao: config.section,
         funcionario: activeEmployee,
         of: activeSessions[activeEmployee],
         acao: 'end',
@@ -139,7 +138,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     payloads.push({
-      secao: config.section,
       funcionario: activeEmployee,
       of: currentOF,
       acao: 'start',
@@ -166,7 +164,6 @@ document.addEventListener('DOMContentLoaded', function () {
     var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
 
     var payload = {
-      secao: config.section,
       funcionario: name,
       of: activeSessions[name],
       acao: 'end',
