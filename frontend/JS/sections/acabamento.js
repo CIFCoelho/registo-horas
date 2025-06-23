@@ -14,6 +14,5 @@ window.SECTION_CONFIG = {
   breakPeriods: [
     { start: '10:00', end: '10:10' },
   ]
-
   
 };
