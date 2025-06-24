@@ -122,42 +122,57 @@ document.addEventListener('DOMContentLoaded', function () {
     display.textContent = currentOF;
   }
 
-  function sendAction(btn, isSwitchingOF) {
-    var now = new Date();
-    var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+function sendAction(btn, isSwitchingOF) {
+  var now = new Date();
+  var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
 
-    var payloads = [];
+  console.log('sendAction()', {
+    isSwitchingOF,
+    activeEmployee,
+    currentOF,
+    previousOF: activeSessions[activeEmployee]
+  });
 
-    if (isSwitchingOF) {
-      payloads.push({
-        funcionario: activeEmployee,
-        of: activeSessions[activeEmployee],
-        acao: 'end',
-        hora: hora
-      });
-    }
+  var payloads = [];
 
-    payloads.push({
+  // Se estiver a mudar de OF e houver uma OF anterior registada
+  if (isSwitchingOF && activeSessions[activeEmployee]) {
+    var endPayload = {
       funcionario: activeEmployee,
-      of: currentOF,
-      acao: 'start',
+      of: activeSessions[activeEmployee],
+      acao: 'end',
       hora: hora
-    });
-
-    payloads.forEach(payload => sendPayload(payload, config.webAppUrl));
-
-    activeSessions[activeEmployee] = currentOF;
-    localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
-    btn.classList.add('active');
-    btn.querySelector('.of-display').textContent = currentOF;
-
-    status.textContent = `Registado: ${activeEmployee} [${currentOF}]`;
-    status.style.color = 'green';
-    currentOF = '';
-    activeEmployee = null;
-    keypad.innerHTML = '';
-    document.querySelectorAll('.employee').forEach(b => b.classList.remove('selected'));
+    };
+    payloads.push(endPayload);
+    console.log('📤 Enviar fim da OF anterior:', endPayload);
   }
+
+  // Novo início
+  var startPayload = {
+    funcionario: activeEmployee,
+    of: currentOF,
+    acao: 'start',
+    hora: hora
+  };
+  payloads.push(startPayload);
+  console.log('📤 Enviar início da nova OF:', startPayload);
+
+  // Enviar todos
+  payloads.forEach(payload => sendPayload(payload, config.webAppUrl));
+
+  // Atualizar interface/localStorage
+  activeSessions[activeEmployee] = currentOF;
+  localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
+  btn.classList.add('active');
+  btn.querySelector('.of-display').textContent = currentOF;
+
+  status.textContent = `Registado: ${activeEmployee} [${currentOF}]`;
+  status.style.color = 'green';
+  currentOF = '';
+  activeEmployee = null;
+  keypad.innerHTML = '';
+  document.querySelectorAll('.employee').forEach(b => b.classList.remove('selected'));
+}
 
   function endShift(name, btn) {
     var now = new Date();
