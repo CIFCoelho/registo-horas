@@ -60,11 +60,17 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function highlightSelected(selectedBtn) {
-    document.querySelectorAll('.employee').forEach(btn => btn.classList.remove('selected'));
+    var buttons = document.querySelectorAll('.employee');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].classList.remove('selected');
+    }
     selectedBtn.classList.add('selected');
   }
 
-  function showKeypad(btn, isSwitchingOF = false) {
+  function showKeypad(btn, isSwitchingOF) {
+    if (typeof isSwitchingOF === 'undefined') {
+      isSwitchingOF = false;
+    }
     keypad.innerHTML = '';
 
     var display = document.createElement('div');
@@ -92,11 +98,14 @@ document.addEventListener('DOMContentLoaded', function () {
     var cancelBtn = document.createElement('button');
     cancelBtn.id = 'cancel-btn';
     cancelBtn.textContent = 'Cancelar';
-    cancelBtn.onclick = function () {
+      cancelBtn.onclick = function () {
       currentOF = '';
       activeEmployee = null;
       keypad.innerHTML = '';
-      document.querySelectorAll('.employee').forEach(btn => btn.classList.remove('selected'));
+      var buttons = document.querySelectorAll('.employee');
+      for (var i = 0; i < buttons.length; i++) {
+        buttons[i].classList.remove('selected');
+      }
     };
     keypad.appendChild(cancelBtn);
 
@@ -127,9 +136,9 @@ function sendAction(btn, isSwitchingOF) {
   var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
 
   console.log('sendAction()', {
-    isSwitchingOF,
-    activeEmployee,
-    currentOF,
+    isSwitchingOF: isSwitchingOF,
+    activeEmployee: activeEmployee,
+    currentOF: currentOF,
     previousOF: activeSessions[activeEmployee]
   });
 
@@ -158,7 +167,9 @@ function sendAction(btn, isSwitchingOF) {
   console.log('📤 Enviar início da nova OF:', startPayload);
 
   // Enviar todos
-  payloads.forEach(payload => sendPayload(payload, config.webAppUrl));
+  for (var i = 0; i < payloads.length; i++) {
+    sendPayload(payloads[i], config.webAppUrl);
+  }
 
   // Atualizar interface/localStorage
   activeSessions[activeEmployee] = currentOF;
@@ -166,12 +177,15 @@ function sendAction(btn, isSwitchingOF) {
   btn.classList.add('active');
   btn.querySelector('.of-display').textContent = currentOF;
 
-  status.textContent = `Registado: ${activeEmployee} [${currentOF}]`;
+  status.textContent = 'Registado: ' + activeEmployee + ' [' + currentOF + ']';
   status.style.color = 'green';
   currentOF = '';
   activeEmployee = null;
   keypad.innerHTML = '';
-  document.querySelectorAll('.employee').forEach(b => b.classList.remove('selected'));
+  var buttons = document.querySelectorAll('.employee');
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].classList.remove('selected');
+  }
 }
 
   function endShift(name, btn) {
@@ -192,7 +206,7 @@ function sendAction(btn, isSwitchingOF) {
     btn.classList.remove('active');
     btn.querySelector('.of-display').textContent = '+';
 
-    status.textContent = `Turno fechado: ${name}`;
+    status.textContent = 'Turno fechado: ' + name;
     status.style.color = 'orange';
   }
 });
