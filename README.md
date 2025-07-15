@@ -75,9 +75,10 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 
 
 ## ☁️ Deploy
+```
 	1.	Deploy do Google Apps Script:
 		•	Apps Script > Deploy as Web App > Acesso: “Anyone”
 		•	Copiar URL e adicionar como WEB_APP_URL em GitHub Secrets
 	2.	GitHub Pages:
 		•	O conteúdo de docs/ é publicado automaticamente via GitHub Actions
-		•	O ficheiro env.js com o URL é gerado dinamicamente no deploy:
+		•	O ficheiro env.js com o URL é gerado dinamicamente no deploy:```
