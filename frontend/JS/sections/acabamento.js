@@ -98,10 +98,11 @@ document.addEventListener('DOMContentLoaded', function () {
     var cancelBtn = document.createElement('button');
     cancelBtn.id = 'cancel-btn';
     cancelBtn.textContent = 'Cancelar';
-      cancelBtn.onclick = function () {
+    cancelBtn.onclick = function () {
       currentOF = '';
       activeEmployee = null;
       keypad.innerHTML = '';
+      keypad.style.display = 'none';
       var buttons = document.querySelectorAll('.employee');
       for (var i = 0; i < buttons.length; i++) {
         buttons[i].classList.remove('selected');
@@ -182,6 +183,7 @@ function sendAction(btn, isSwitchingOF) {
   currentOF = '';
   activeEmployee = null;
   keypad.innerHTML = '';
+  keypad.style.display = 'none';
   var buttons = document.querySelectorAll('.employee');
   for (var i = 0; i < buttons.length; i++) {
     buttons[i].classList.remove('selected');

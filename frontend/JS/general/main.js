@@ -63,6 +63,7 @@ document.addEventListener('DOMContentLoaded', function () {
       currentOF = '';
       activeEmployee = null;
       keypad.innerHTML = '';
+      keypad.style.display = 'none';
       var allButtons = document.querySelectorAll('.employee');
       for (var i = 0; i < allButtons.length; i++) {
         allButtons[i].classList.remove('selected');
@@ -116,6 +117,7 @@ document.addEventListener('DOMContentLoaded', function () {
     currentOF = '';
     activeEmployee = null;
     keypad.innerHTML = '';
+    keypad.style.display = 'none';
     var allButtons = document.querySelectorAll('.employee');
     for (var i = 0; i < allButtons.length; i++) {
       allButtons[i].classList.remove('selected');
