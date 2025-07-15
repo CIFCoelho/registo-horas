@@ -51,7 +51,7 @@ registo-horas/
 
 ```json
 {
-  "funcionario": "Cristina",
+  "funcionario": "Carlota",
   "of": "123456",
   "acao": "start",
   "hora": "07:30"
