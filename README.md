@@ -67,8 +67,13 @@ registo-horas/
 | Data | Funcionário | OF | Início | Fim | Duração (h) |
 |------|-------------|----|--------|-----|--------------|
 
-- A coluna **Duração (h)** é calculada no Apps Script ou via fórmula:  
-  `=IF(AND(D2<>""; E2<>""); ROUND((TIMEVALUE(E2) - TIMEVALUE(D2)) * 24; 2); "")`
+ - A coluna **Duração (h)** é calculada no Apps Script ou via fórmula.
+   Para descontar a pausa das **10h00–10h10**, utilize:
+   `=IF(AND(D2<>"";E2<>"");
+      ROUND(((TIMEVALUE(E2)-TIMEVALUE(D2))
+             -MAX(0;MIN(TIMEVALUE(E2);TIME(10;10;0))
+                    -MAX(TIMEVALUE(D2);TIME(10;0;0))))*24;2);
+      "")`
 
 ### 🧵 "Costura":
 
