@@ -31,5 +31,7 @@ Temporary Items
 # iCloud generated files
 *.icloud
 
+.idea
+
 # Apps Scripts
 config.js
