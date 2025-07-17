@@ -1,6 +1,3 @@
-# In this file, we have the backend logic being used with Apps Script
-
-
 const SPREADSHEET_ID = '1ya2DpDG9rrVTC7oo0XMcWupdyiC0RKH4-UA-PViOCQA';
 
 function doPost(e) {
