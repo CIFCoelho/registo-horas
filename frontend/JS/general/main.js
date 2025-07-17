@@ -90,17 +90,11 @@ document.addEventListener('DOMContentLoaded', function () {
     var action = 'start';
     var now = new Date();
     var time = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
-    var payload = {
-      section: config.section,
-      employee: activeEmployee,
-      of: currentOF,
-      action: action,
-      time: time
-    };
+  
 
     var xhr = new XMLHttpRequest();
     xhr.open('POST', config.webAppUrl, true);
-    xhr.setRequestHeader('Content-Type', 'text/plain');
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     xhr.onreadystatechange = function () {
       if (xhr.readyState === 4) {
         if (xhr.status === 200) {
@@ -112,7 +106,13 @@ document.addEventListener('DOMContentLoaded', function () {
         }
       }
     };
-    xhr.send(JSON.stringify(payload));
+    var encoded = encodeURIComponent(JSON.stringify({
+      funcionario: activeEmployee,
+      of: currentOF,
+      acao: action,
+      hora: time
+    }));
+    xhr.send('data=' + encoded);
 
     currentOF = '';
     activeEmployee = null;
