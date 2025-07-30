@@ -3,6 +3,7 @@
   margin-left: auto;
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .right-controls .of-display {
@@ -10,9 +11,9 @@
 }
 
 .action-btn {
-  background: #6c757d;
+  background: #5f6360;
   border: none;
-  color: white;
+  color: #fff;
   font-size: 24px;
   width: 60px;
   height: 60px;
@@ -52,4 +53,9 @@
   width: 100%;
   margin: 4px 0;
   padding: 0.5rem;
+  background: #038843;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 18px;
 }
