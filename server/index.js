@@ -34,6 +34,10 @@ app.post('/acabamento', async (req, res) => {
       await handleStart(data);
     } else if (data.acao === 'end') {
       await handleEnd(data);
+    } else if (data.acao === 'cancel') {
+      await handleCancel(data);
+    } else if (data.acao === 'finishIncomplete') {
+      await handleFinishIncomplete(data);  
     } else {
       throw new Error('Ação inválida');
     }
@@ -67,7 +71,7 @@ async function handleStart(data) {
   });
 }
 
-async function handleEnd(data) {
+async function handleCancel(data) {
   const [h, m] = data.hora.split(':').map(Number);
   let end = new Date();
   end.setHours(h, m, 0, 0);
@@ -91,26 +95,43 @@ async function handleEnd(data) {
   const json = await resp.json();
   if (!json.results || !json.results.length) return;
   const page = json.results[0];
-  const startStr = page.properties['Início do Turno'].date.start;
-  const start = new Date(startStr);
-
-  const breakStart = new Date(start);
-  breakStart.setHours(10, 0, 0, 0);
-  const breakEnd = new Date(start);
-  breakEnd.setHours(10, 10, 0, 0);
-
-  if (start < breakEnd && end > breakStart) {
-    end = new Date(end.getTime() - 10 * 60 * 1000);
-  }
 
   const payload = {
     properties: {
-      'Final do Turno': { date: { start: end.toISOString() } }
+      'Final do Turno': { date: { start: end.toISOString() } },
+      'Notas do Sistema': {
+        rich_text: [{ text: { content: 'Turno cancelado manualmente' } }]
+      }
     }
   };
 
   await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
+    headers,
+    body: JSON.stringify(payload)
+  });
+}
+
+async function handleFinishIncomplete(data) {
+  const [h, m] = data.hora.split(':').map(Number);
+  const start = new Date();
+  start.setHours(h, m, 0, 0);
+
+  const note = `Terminou ${data.tipo} iniciado por ${data.iniciou} (${data.minutosRestantes} min)`;
+
+  const payload = {
+    parent: { database_id: DATABASE_ID },
+    properties: {
+      'Colaborador': {
+        title: [{ text: { content: data.funcionario } }]
+      },
+      'Início do Turno': { date: { start: start.toISOString() } },
+      'Notas do Sistema': { rich_text: [{ text: { content: note } }] }
+    }
+  };
+
+  await fetch('https://api.notion.com/v1/pages', {
+    method: 'POST',
     headers,
     body: JSON.stringify(payload)
   });
@@ -150,7 +171,3 @@ async function autoClose(timeStr) {
     });
   }
 }
-
-app.listen(PORT, () => {
-  console.log('Server running on port', PORT);
-});
