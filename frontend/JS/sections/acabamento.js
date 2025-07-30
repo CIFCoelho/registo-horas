@@ -13,12 +13,15 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   config.names.forEach(function (name) {
-    var btn = document.createElement('button');
+    var btn = document.createElement('div');
     btn.className = 'employee';
 
     var nameSpan = document.createElement('span');
     nameSpan.textContent = name;
     btn.appendChild(nameSpan);
+
+    var controls = document.createElement('div');
+    controls.className = 'right-controls';
 
     var ofDisplay = document.createElement('span');
     ofDisplay.className = 'of-display';
@@ -30,8 +33,9 @@ document.addEventListener('DOMContentLoaded', function () {
     actionBtn.textContent = '\u22EF'; // "⋯"
     actionBtn.onclick = function (e) {
       e.stopPropagation();
-      showActionMenu(name, btn);
+      showActivityMenu(name, btn);
     };
+    controls.appendChild(actionBtn);
     btn.appendChild(actionBtn);
 
     ofDisplay.onclick = function (e) {
@@ -230,11 +234,19 @@ document.addEventListener('DOMContentLoaded', function () {
     openModal(function(modal) {
       var finishBtn = document.createElement('button');
       finishBtn.textContent = 'Terminar Acabamento Incompleto';
-      finishBtn.onclick = function() {
+      finishBtn.onclick = function () {
         closeModal();
         showFinishIncompleteForm(name);
       };
-      modal.appendChild(finishBtn); // fixed from previous bug (added finishBtn)
+      modal.appendChild(finishBtn);
+
+      var cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancelar Turno Atual';
+      cancelBtn.onclick = function () {
+        closeModal();
+        cancelCurrentShift(name, btn);
+      };
+      modal.appendChild(cancelBtn);
     });
   }
 
@@ -259,7 +271,7 @@ document.addEventListener('DOMContentLoaded', function () {
       cru.name = 'tipo';
       cru.value = 'Cru';
       cruLabel.appendChild(cru);
-      cruLabel.appendChild(document.createTextNode(' Cru '));
+      cruLabel.appendChild(document.createTextNode(' Cru'));
       tipoDiv.appendChild(tpLabel);
       tipoDiv.appendChild(cruLabel);
       modal.appendChild(tipoDiv);
@@ -271,7 +283,7 @@ document.addEventListener('DOMContentLoaded', function () {
         var opt = document.createElement('option');
         opt.value = config.names[i];
         opt.textContent = config.names[i];
-        colabSelect.appendChild(opt);    
+        colabSelect.appendChild(opt);
       }
       colabDiv.appendChild(colabSelect);
       modal.appendChild(colabDiv);

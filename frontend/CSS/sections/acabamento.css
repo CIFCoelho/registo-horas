@@ -1,13 +1,23 @@
 /* Action button next to employee */
+.right-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+.right-controls .of-display {
+  margin-left: 0;
+}
+
 .action-btn {
   background: #6c757d;
   border: none;
   color: white;
-  font-size: 20px;
-  width: 32px;
-  height: 32px;
-  line-height: 32px;
-  border-radius: 50%;
+  font-size: 24px;
+  width: 60px;
+  height: 60px;
+  line-height: 60px;
+  border-radius: 12px;
   margin-left: 8px;
   cursor: pointer;
 }
@@ -30,8 +40,8 @@
   background: #fff;
   padding: 1rem;
   border-radius: 8px;
-  max-width: 90%;
-  width: 300px;
+  max-width: 95%;
+  width: 380px;
 }
 
 .modal div {
