@@ -36,6 +36,7 @@ document.addEventListener('DOMContentLoaded', function () {
       showActivityMenu(name, btn);
     };
     controls.appendChild(actionBtn);
+
     btn.appendChild(actionBtn);
 
     ofDisplay.onclick = function (e) {
