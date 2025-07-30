@@ -26,18 +26,18 @@ document.addEventListener('DOMContentLoaded', function () {
     var ofDisplay = document.createElement('span');
     ofDisplay.className = 'of-display';
     ofDisplay.textContent = '+';
-    btn.appendChild(ofDisplay);
+    controls.appendChild(ofDisplay);
 
     var actionBtn = document.createElement('button');
     actionBtn.className = 'action-btn';
     actionBtn.textContent = '\u22EF'; // "⋯"
     actionBtn.onclick = function (e) {
       e.stopPropagation();
-      showActivityMenu(name, btn);
+      showActionMenu(name, btn);
     };
     controls.appendChild(actionBtn);
 
-    btn.appendChild(actionBtn);
+    btn.appendChild(controls);
 
     ofDisplay.onclick = function (e) {
       e.stopPropagation();
