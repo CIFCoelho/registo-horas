@@ -1,7 +1,13 @@
 body {
-  font-family: sans-serif;
+  font-family: Helvetica, Arial, sans-serif;
   margin: 0;
   padding: 0;
+  background: #f5f5f5;
+}
+h1 {
+  text-align: center;
+  color: #038843;
+  margin: 1rem 0;
 }
 #container {
   display: flex;
@@ -24,35 +30,37 @@ body {
   padding: 1rem;
   border-radius: 12px;
   font-size: 22px;
-  background-color: #4c5d54;
-  color: white;
+  background-color: #038843;
+  color: #fff;
   width: 100%;
   box-sizing: border-box;
   cursor: pointer;
 }
 .employee.active {
-  background-color: #34a853;
+  background-color: #4eb7f5;
 }
 .employee.selected {
-  background-color: #6c757d;
+  background-color: #5f6360;
 }
 .of-display {
-    font-weight: bold;
-    font-size: 20px;
-    background-color: white;
-    color: black;
-    border-radius: 50%;
-    width: 60px;
-    height: 60px;
-    line-height: 60px;
-    text-align: center;
-    cursor: pointer;
-    margin-left: auto;
+  font-weight: bold;
+  font-size: 20px;
+  background-color: #fff;
+  color: #000;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  line-height: 60px;
+  text-align: center;
+  border: 2px solid #038843;
+  cursor: pointer;
+  margin-left: auto;
   }
 #of-keypad {
   flex: 1;
   text-align: center;
   display: none;
+  padding: 0.5rem;
 }
 .key-row {
   display: flex;
@@ -66,7 +74,7 @@ body {
   margin: 4px;
   border: none;
   border-radius: 8px;
-  background: #eee;
+  background: #e0e0e0;
   cursor: pointer;
 }
 .key.wide {
@@ -81,7 +89,7 @@ body {
   margin: 10px;
   padding: 0.5rem 1rem;
   background-color: #dc3545;
-  color: white;
+  color: #fff;
   border: none;
   border-radius: 8px;
   cursor: pointer;
