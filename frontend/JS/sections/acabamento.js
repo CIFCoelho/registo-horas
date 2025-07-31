@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var activeEmployee = null;
   var currentOF = '';
   var activeSessions = {};
+  var actionButtons = {};
   var modalOverlay = null;
 
   if (localStorage.getItem('activeSessions')) {
@@ -13,6 +14,9 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   config.names.forEach(function (name) {
+    var row = document.createElement('div');
+    row.className = 'employee-row';
+
     var btn = document.createElement('div');
     btn.className = 'employee';
 
@@ -28,6 +32,9 @@ document.addEventListener('DOMContentLoaded', function () {
     ofDisplay.textContent = '+';
     controls.appendChild(ofDisplay);
 
+    btn.appendChild(controls);
+    row.appendChild(btn);
+
     var actionBtn = document.createElement('button');
     actionBtn.className = 'action-btn';
     actionBtn.textContent = '\u22EF'; // "⋯"
@@ -35,9 +42,9 @@ document.addEventListener('DOMContentLoaded', function () {
       e.stopPropagation();
       showActionMenu(name, btn);
     };
-    controls.appendChild(actionBtn);
 
-    btn.appendChild(controls);
+    row.appendChild(actionBtn);
+    actionButtons[name] = actionBtn;
 
     ofDisplay.onclick = function (e) {
       e.stopPropagation();
@@ -54,11 +61,13 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     };
 
-    employeeList.appendChild(btn);
+    employeeList.appendChild(row);
 
     if (activeSessions[name]) {
       btn.classList.add('active');
       ofDisplay.textContent = activeSessions[name];
+      actionBtn.style.display = 'inline-block';
+
     }
   });
 
@@ -196,6 +205,7 @@ document.addEventListener('DOMContentLoaded', function () {
     localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
     btn.classList.add('active');
     btn.querySelector('.of-display').textContent = currentOF;
+    actionButtons[activeEmployee].style.display = 'inline-block';
 
     status.textContent = 'Registado: ' + activeEmployee + ' [' + currentOF + ']';
     status.style.color = 'green';
@@ -226,6 +236,7 @@ document.addEventListener('DOMContentLoaded', function () {
     localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
     btn.classList.remove('active');
     btn.querySelector('.of-display').textContent = '+';
+    actionButtons[name].style.display = 'none';
 
     status.textContent = 'Turno fechado: ' + name;
     status.style.color = 'orange';
@@ -248,6 +259,11 @@ document.addEventListener('DOMContentLoaded', function () {
         cancelCurrentShift(name, btn);
       };
       modal.appendChild(cancelBtn);
+
+      var fecharBtn = document.createElement('button');
+      fecharBtn.textContent = 'Fechar';
+      fecharBtn.onclick = closeModal;
+      modal.appendChild(fecharBtn);
     });
   }
 
@@ -354,6 +370,7 @@ document.addEventListener('DOMContentLoaded', function () {
     localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
     btn.classList.remove('active');
     btn.querySelector('.of-display').textContent = '+';
+    actionButtons[name].style.display = 'none';
     status.textContent = 'Turno cancelado: ' + name;
     status.style.color = 'orange';
   }
