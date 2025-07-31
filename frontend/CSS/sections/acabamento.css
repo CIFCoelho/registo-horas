@@ -1,9 +1,14 @@
 /* Action button next to employee */
+.employee-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .right-controls {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
 }
 
 .right-controls .of-display {
@@ -18,9 +23,9 @@
   width: 60px;
   height: 60px;
   line-height: 60px;
-  border-radius: 12px;
-  margin-left: 8px;
+  border-radius: 50%;
   cursor: pointer;
+  display: none;
 }
 
 /* Modal styles */
