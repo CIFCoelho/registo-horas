@@ -6,7 +6,13 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@notionhq/client": "^4.0.2",
+    "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "node-cron": "^3.0.2"
-  }
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
 }
