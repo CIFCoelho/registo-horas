@@ -36,5 +36,8 @@ Temporary Items
 # Apps Scripts
 config.js
 
+# env files
+server/.env
+
 # Node
 node_modules/
