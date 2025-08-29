@@ -25,9 +25,25 @@ const headers = {
 
 const app = express();
 
-// CORS (narrow to site)
+// CORS: support single origin, wildcard, or comma-separated list
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', ALLOW_ORIGIN);
+  const origin = req.headers.origin;
+  const allow = (ALLOW_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+
+  let allowHeader = '';
+  if (allow.includes('*')) {
+    allowHeader = '*';
+  } else if (origin && allow.includes(origin)) {
+    allowHeader = origin;
+  } else if (allow.length === 1) {
+    // Backward compatibility: if one origin configured, expose it
+    allowHeader = allow[0];
+  }
+
+  if (allowHeader) {
+    res.setHeader('Access-Control-Allow-Origin', allowHeader);
+  }
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
