@@ -75,6 +75,18 @@ app.get('/notion/meta', async (req, res) => {
   }
 });
 
+app.get('/notion/whoami', async (req, res) => {
+  try {
+    const resp = await fetch('https://api.notion.com/v1/users/me', { headers });
+    const text = await resp.text();
+    if (!resp.ok) throw new Error(`Notion whoami failed (${resp.status}): ${text}`);
+    res.setHeader('Content-Type', 'application/json');
+    res.send(text);
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 app.post('/acabamento', async (req, res) => {
   try {
     const raw = req.body?.data;
