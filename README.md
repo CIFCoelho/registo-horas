@@ -1,8 +1,10 @@
 # 📘 Registo de Produtividade
 
-Sistema leve e modular de registo de produtividade de colaboradores, com foco em ambientes industriais com equipamentos antigos (ex: iPad 2) A primeira versão usava Google Sheets, mas a secção **Acabamento** já envia registos para uma base de dados no Notion através de um pequeno backend Node.js.
+Sistema leve e modular de registo de produtividade de colaboradores, com foco em ambientes industriais com equipamentos antigos (ex: iPad 2). A primeira versão usava Google Sheets (Apps Script), mas a secção **Acabamento** já envia registos para uma base de dados no Notion através de um pequeno backend Node.js alojado na Render.
 
-> 🛠 Atualmente em uso na secção de **Acabamento**. Outras secções estão em desenvolvimento progressivo.
+Backend atual em produção: `https://registo-horas.onrender.com`
+
+> 🛠 Em produção na secção **Acabamento**. Próximas secções serão migradas para o mesmo backend.
 
 ---
 
@@ -30,6 +32,12 @@ GitHub Pages (Frontend)
 Node.js Backend (server/index.js)
    ↓
 Notion (Base de dados)
+
+Endpoints relevantes (backend):
+- `GET /health` – status/CORS configurado
+- `GET /notion/whoami` – valida o token (mostra o “bot user”)
+- `GET /notion/meta` – lê metadados da base de dados (título e tipos)
+- `POST /acabamento` – recebe ações do frontend (start/end/cancel/finishIncomplete)
 ```
 
 ---
@@ -89,7 +97,7 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 
 ---
 
-## 🧪 Como testar localmente
+## 🧪 Como testar localmente (opcional)
 
 1. Clonar este repositório
 2. Instalar dependências e arrancar o backend em `server/` com `npm start`
@@ -105,12 +113,24 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 
 ## ☁️ Deploy
 
-### 1. ### 1. Backend Node.js (Notion)
+### 1. Backend Node.js (Render)
 
-- Instalar dependências com `npm install` na pasta `server/`
-- Definir as variáveis `NOTION_TOKEN` e `ACABAMENTO_DB_ID`
-- Correr com `npm start`
-- Atualizar `frontend/JS/config/acabamento.config.js` com o URL do servidor
+- Serviço Web na Render com Root Directory: `server`
+- Build: `npm install`
+- Start: `npm start`
+- Runtime: Node 18+
+- Variáveis de ambiente (na Render, não no GitHub Pages):
+  - `NOTION_TOKEN` – token da integração Notion (prefixo atual: `ntn_…`)
+  - `ACABAMENTO_DB_ID` – ID da base de dados no Notion
+  - `ALLOW_ORIGIN` – `https://cifcoelho.github.io`
+  - `PORT` – opcional (Render ignora e usa a sua própria)
+- Depois do deploy, confirmar:
+  - `GET https://registo-horas.onrender.com/health`
+  - `GET https://registo-horas.onrender.com/notion/whoami`
+  - `GET https://registo-horas.onrender.com/notion/meta`
+
+Config do frontend (Acabamento):
+- `frontend/JS/config/acabamento.config.js:1` → `webAppUrl: 'https://registo-horas.onrender.com/acabamento'`
 
 ### 2. Google Apps Script (legacy)
 
@@ -148,7 +168,35 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 
 ## ⚠️ Limitações
 
-- Apenas **JavaScript puro** (sem frameworks) para suportar Safari 9  
-- Requer que os dados sejam enviados como:  
-  `Content-Type: x-www-form-urlencoded`  
-  com `data=<urlencoded JSON>`
+- Apenas **JavaScript puro** (sem frameworks) para suportar Safari 9
+- Requer que os dados sejam enviados como `application/x-www-form-urlencoded` com `data=<urlencoded JSON>`
+- Backend na Render (plano gratuito):
+  - Adormece após ~15 min sem tráfego → a primeira chamada sofre “cold start” (10–60s)
+  - Tarefas `cron` internas não executam se o serviço estiver a dormir (ex.: auto‑fecho às 12:03/17:03)
+  - Mitigações:
+    - Agendar um “wake-up ping” periódico ao endpoint `/health` (ex.: UptimeRobot 10–14 min)
+    - Criar endpoint de trigger e usar um agendador externo para o auto‑close
+    - Opcional: mudar para plano pago/sempre ligado se a latência for crítica
+
+### Notion – notas importantes
+- O token da integração agora pode começar por `ntn_` (válido). O importante é ser o token da integração ativa e a DB estar partilhada com essa integração.
+- Partilhar a DB: abrir DB → menu `…` → Add connections → escolher a integração.
+- Propriedades que o backend espera (nomes exatos):
+  - “Colaborador” (title)
+  - “Ordem de Fabrico” (number)
+  - “Início do Turno” (date)
+  - “Final do Turno” (date)
+  - “Notas do Sistema” (rich_text)
+
+### Testes em tablets (iPad 2)
+- Aceder via GitHub Pages: `https://cifcoelho.github.io/registo-horas/frontend/HTML/acabamento.html`
+- Garantir que o backend respondeu recentemente (ou fazer um toque inicial para “acordar”)
+- Verificar início/fim/cancelamento e o “Terminar Incompleto”
+
+### Outras secções
+- Recomenda‑se reutilizar o mesmo backend com novas rotas (`/estofagem`, `/pintura`, `/costura`) e variáveis `*_DB_ID` por secção.
+
+### Segurança e housekeeping
+- O ficheiro `server/.env` não deve ser versionado. Está ignorado em `.gitignore` e foi removido do repositório em favor das variáveis de ambiente na Render.
+- Se já houve exposição de tokens, **rode** o token na Notion e atualize na Render.
+- Opcional: adicionar `server/.env.example` com placeholders para desenvolvimento local.
