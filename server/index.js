@@ -58,6 +58,23 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, allow: ALLOW_ORIGIN });
 });
 
+// Lightweight Notion DB metadata endpoint to help debugging
+app.get('/notion/meta', async (req, res) => {
+  try {
+    const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}`, { headers });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Notion meta failed (${resp.status}): ${text}`);
+    }
+    const json = await resp.json();
+    const props = {};
+    Object.entries(json.properties || {}).forEach(([name, def]) => (props[name] = def.type));
+    res.json({ ok: true, id: json.id, title: json.title?.[0]?.plain_text || '', properties: props });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 app.post('/acabamento', async (req, res) => {
   try {
     const raw = req.body?.data;
@@ -65,6 +82,8 @@ app.post('/acabamento', async (req, res) => {
     const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
 
     if (!data.acao || !data.funcionario) throw new Error('Dados incompletos');
+
+    console.log(`[REQ] /acabamento ->`, data);
 
     if (data.acao === 'start') {
       await handleStart(data);
@@ -77,10 +96,10 @@ app.post('/acabamento', async (req, res) => {
     } else {
       throw new Error('Ação inválida');
     }
-    res.send('OK');
+    res.json({ ok: true });
   } catch (err) {
     console.error(err);
-    res.status(400).send(err.message);
+    res.status(400).json({ ok: false, error: String(err.message || err) });
   }
 });
 
@@ -105,11 +124,15 @@ async function handleStart(data) {
     }
   };
 
-  await fetch('https://api.notion.com/v1/pages', {
+  const resp = await fetch('https://api.notion.com/v1/pages', {
     method: 'POST',
     headers,
     body: JSON.stringify(payload)
   });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Notion create failed (${resp.status}): ${text}`);
+  }
 }
 
 async function handleEnd(data) {
@@ -130,6 +153,10 @@ async function handleEnd(data) {
     headers,
     body: JSON.stringify(query)
   });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Notion query failed (${resp.status}): ${text}`);
+  }
   const json = await resp.json();
   if (!json.results || !json.results.length) throw new Error('Nenhum turno aberto encontrado');
 
@@ -142,11 +169,15 @@ async function handleEnd(data) {
     }
   };
 
-  await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+  const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(payload)
   });
+  if (!resp2.ok) {
+    const text = await resp2.text();
+    throw new Error(`Notion update failed (${resp2.status}): ${text}`);
+  }
 }
 
 async function handleCancel(data) {
@@ -168,6 +199,10 @@ async function handleCancel(data) {
     headers,
     body: JSON.stringify(query)
   });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Notion query failed (${resp.status}): ${text}`);
+  }
   const json = await resp.json();
   if (!json.results || !json.results.length) return;
 
@@ -181,11 +216,15 @@ async function handleCancel(data) {
     }
   };
 
-  await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+  const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(payload)
   });
+  if (!resp2.ok) {
+    const text = await resp2.text();
+    throw new Error(`Notion update failed (${resp2.status}): ${text}`);
+  }
 }
 
 async function handleFinishIncomplete(data) {
@@ -201,11 +240,15 @@ async function handleFinishIncomplete(data) {
     }
   };
 
-  await fetch('https://api.notion.com/v1/pages', {
+  const resp = await fetch('https://api.notion.com/v1/pages', {
     method: 'POST',
     headers,
     body: JSON.stringify(payload)
   });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Notion create failed (${resp.status}): ${text}`);
+  }
 }
 
 // Auto-close jobs (at 12:03 and 17:03 Lisbon time)
@@ -224,6 +267,10 @@ async function autoClose(timeStr) {
     headers,
     body: JSON.stringify(query)
   });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Notion query failed (${resp.status}): ${text}`);
+  }
   const json = await resp.json();
   for (const page of json.results || []) {
     const payload = {
@@ -234,11 +281,15 @@ async function autoClose(timeStr) {
         }
       }
     };
-    await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+    const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
       method: 'PATCH',
       headers,
       body: JSON.stringify(payload)
     });
+    if (!resp2.ok) {
+      const text = await resp2.text();
+      console.error(`AutoClose update failed (${resp2.status}): ${text}`);
+    }
   }
 }
 
