@@ -220,6 +220,14 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function endShift(name, btn) {
+    // Confirm before closing the shift to avoid mistakes
+    var confirmMsg = 'Quer realmente terminar o turno atual ' + name + '?';
+    if (!window.confirm(confirmMsg)) {
+      status.textContent = 'Operação cancelada';
+      status.style.color = 'orange';
+      return;
+    }
+
     var now = new Date();
     var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
 
