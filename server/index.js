@@ -282,7 +282,7 @@ async function handleFinishIncomplete(data) {
 
   // Combine notes
   const tipo = String(data.tipo).trim();
-  const newNote = `Terminou ${tipo} iniciado por ${data.iniciou}`;
+  const newNote = `Terminou ${tipo} iniciado por ${data.iniciou} durante ${minutes} min`;
   const existingNotes = (page.properties?.['Notas do Sistema']?.rich_text || [])
     .map((r) => r.plain_text || (r.text && r.text.content) || '')
     .join(' ')
