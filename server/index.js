@@ -9,7 +9,7 @@ const cron = require('node-cron');
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const DATABASE_ID = process.env.ACABAMENTO_DB_ID;
 const PORT = process.env.PORT || 8787;
-const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io';
+const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io/registo-horas/frontend/HTML/acabamento.html';
 
 // Guard rails: fail fast if secrets are missing
 if (!NOTION_TOKEN || !DATABASE_ID) {
