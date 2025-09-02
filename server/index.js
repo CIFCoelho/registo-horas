@@ -240,26 +240,70 @@ async function handleCancel(data) {
 }
 
 async function handleFinishIncomplete(data) {
-  const startISO = hhmmToTodayISO(data.hora);
-  const note = `Terminou ${data.tipo} iniciado por ${data.iniciou} (${data.minutosRestantes} min)`;
+  if (!data.tipo || !data.iniciou || typeof data.minutosRestantes === 'undefined') {
+    throw new Error('Dados incompletos');
+  }
+  if (String(data.iniciou).trim() === String(data.funcionario).trim()) {
+    throw new Error('Escolha outro colaborador');
+  }
 
-  const payload = {
-    parent: { database_id: DATABASE_ID },
-    properties: {
-      'Colaborador': { title: [{ text: { content: data.funcionario } }] },
-      'Início do Turno': { date: { start: startISO } },
-      'Notas do Sistema': { rich_text: [{ text: { content: note } }] }
-    }
+  // Find the most recent open record for this collaborator
+  const query = {
+    filter: {
+      and: [
+        { property: 'Colaborador', title: { equals: data.funcionario } },
+        { property: 'Final do Turno', date: { is_empty: true } }
+      ]
+    },
+    sorts: [{ property: 'Início do Turno', direction: 'descending' }],
+    page_size: 1
   };
 
-  const resp = await fetch('https://api.notion.com/v1/pages', {
+  const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(payload)
+    body: JSON.stringify(query)
   });
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`Notion create failed (${resp.status}): ${text}`);
+    throw new Error(`Notion query failed (${resp.status}): ${text}`);
+  }
+  const json = await resp.json();
+  if (!json.results || !json.results.length) throw new Error('Nenhum turno aberto encontrado');
+
+  const page = json.results[0];
+
+  // Get current start time, adjust forward by minutosRestantes (subtract from shift)
+  const startProp = page.properties?.['Início do Turno']?.date?.start;
+  if (!startProp) throw new Error('Início do Turno não encontrado');
+  const startDate = new Date(startProp);
+  const minutes = Math.max(0, Number(data.minutosRestantes) || 0);
+  const adjustedStartISO = new Date(startDate.getTime() + minutes * 60_000).toISOString();
+
+  // Combine notes
+  const tipo = String(data.tipo).trim();
+  const newNote = `Terminou ${tipo} iniciado por ${data.iniciou}`;
+  const existingNotes = (page.properties?.['Notas do Sistema']?.rich_text || [])
+    .map((r) => r.plain_text || (r.text && r.text.content) || '')
+    .join(' ')
+    .trim();
+  const combinedNotes = existingNotes ? `${existingNotes} | ${newNote}` : newNote;
+
+  const payload = {
+    properties: {
+      'Início do Turno': { date: { start: adjustedStartISO } },
+      'Notas do Sistema': { rich_text: [{ text: { content: combinedNotes } }] }
+    }
+  };
+
+  const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(payload)
+  });
+  if (!resp2.ok) {
+    const text = await resp2.text();
+    throw new Error(`Notion update failed (${resp2.status}): ${text}`);
   }
 }
 

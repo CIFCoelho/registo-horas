@@ -297,6 +297,7 @@ document.addEventListener('DOMContentLoaded', function () {
       colabDiv.textContent = 'Colaborador que iniciou:';
       var colabSelect = document.createElement('select');
       for (var i = 0; i < config.names.length; i++) {
+        if (config.names[i] === name) continue; // não permitir selecionar a si próprio
         var opt = document.createElement('option');
         opt.value = config.names[i];
         opt.textContent = config.names[i];
@@ -322,7 +323,16 @@ document.addEventListener('DOMContentLoaded', function () {
       enviar.textContent = 'Enviar';
       enviar.onclick = function () {
         var tipoRadio = modal.querySelector('input[name="tipo"]:checked');
-        if (!tipoRadio) return;
+        if (!tipoRadio) {
+          status.textContent = 'Selecione o tipo de acabamento';
+          status.style.color = 'red';
+          return;
+        }
+        if (!colabSelect.value) {
+          status.textContent = 'Escolha outro colaborador';
+          status.style.color = 'red';
+          return;
+        }
         finishIncompleteAction(name, tipoRadio.value, colabSelect.value, tempoSelect.value);
         closeModal();
       };
