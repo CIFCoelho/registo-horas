@@ -35,6 +35,8 @@ document.addEventListener('DOMContentLoaded', function () {
     btn.appendChild(controls);
     row.appendChild(btn);
 
+    // Action button belongs inside the right-side controls so it
+    // stays within the green card on older Safari (no flex-gap).
     var actionBtn = document.createElement('button');
     actionBtn.className = 'action-btn';
     actionBtn.textContent = '\u22EF'; // "⋯"
@@ -43,7 +45,7 @@ document.addEventListener('DOMContentLoaded', function () {
       showActionMenu(name, btn);
     };
 
-    row.appendChild(actionBtn);
+    controls.appendChild(actionBtn);
     actionButtons[name] = actionBtn;
 
     ofDisplay.onclick = function (e) {

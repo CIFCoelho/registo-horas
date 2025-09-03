@@ -2,13 +2,17 @@
 .employee-row {
   display: flex;
   align-items: center;
-  gap: 8px;
 }
 
 .right-controls {
   margin-left: auto;
   display: flex;
   align-items: center;
+}
+
+/* Spacing between controls without relying on flex-gap (not on iOS 9) */
+.right-controls > * + * {
+  margin-left: 8px;
 }
 
 .right-controls .of-display {
