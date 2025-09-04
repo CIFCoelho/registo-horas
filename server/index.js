@@ -307,12 +307,15 @@ async function handleFinishIncomplete(data) {
   }
 }
 
-// Auto-close jobs (at 12:03 and 17:03 Lisbon time)
-cron.schedule('3 12 * * *', () => autoClose('12:03'), { timezone: 'Europe/Lisbon' });
-cron.schedule('3 17 * * *', () => autoClose('17:03'), { timezone: 'Europe/Lisbon' });
+// Auto-close jobs (exactly at 12:00 and 17:00 Lisbon time)
+// At 12:00, subtract 10 minutes for the morning break
+cron.schedule('0 12 * * *', () => autoClose('12:00', { subtractMinutes: 10 }), { timezone: 'Europe/Lisbon' });
+cron.schedule('0 17 * * *', () => autoClose('17:00'), { timezone: 'Europe/Lisbon' });
 
-async function autoClose(timeStr) {
-  const endISO = hhmmToTodayISO(timeStr);
+async function autoClose(timeStr, opts = {}) {
+  const subtract = Number(opts.subtractMinutes || 0);
+  const endDate = new Date(hhmmToTodayISO(timeStr));
+  const endISO = new Date(endDate.getTime() - subtract * 60_000).toISOString();
 
   const query = {
     filter: { property: 'Final do Turno', date: { is_empty: true } }
@@ -333,7 +336,7 @@ async function autoClose(timeStr) {
       properties: {
         'Final do Turno': { date: { start: endISO } },
         'Notas do Sistema': {
-          rich_text: [{ text: { content: `Fechado automaticamente às ${timeStr}` } }]
+          rich_text: [{ text: { content: `Fechado automaticamente às ${timeStr}${subtract ? ` (−${subtract} min pausa manhã)` : ''}` } }]
         }
       }
     };
