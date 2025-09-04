@@ -222,34 +222,53 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function endShift(name, btn) {
-    // Confirm before closing the shift to avoid mistakes
-    var confirmMsg = 'Quer realmente terminar o turno atual ' + name + '?';
-    if (!window.confirm(confirmMsg)) {
-      status.textContent = 'Operação cancelada';
-      status.style.color = 'orange';
-      return;
-    }
+    // Replace window.confirm with consistent modal UI
+    openModal(function(modal) {
+      var title = document.createElement('h3');
+      title.textContent = 'Terminar Turno?';
+      modal.appendChild(title);
 
-    var now = new Date();
-    var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+      var info = document.createElement('div');
+      var ofNum = activeSessions[name];
+      info.textContent = 'Tem a certeza que quer terminar o turno de ' + name + (ofNum ? ' na OF ' + ofNum : '') + '?';
+      modal.appendChild(info);
 
-    var payload = {
-      funcionario: name,
-      of: activeSessions[name],
-      acao: 'end',
-      hora: hora
-    };
+      var confirmBtn = document.createElement('button');
+      confirmBtn.textContent = 'Terminar';
+      confirmBtn.onclick = function () {
+        var now = new Date();
+        var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
 
-    sendPayload(payload, config.webAppUrl);
+        var payload = {
+          funcionario: name,
+          of: activeSessions[name],
+          acao: 'end',
+          hora: hora
+        };
 
-    delete activeSessions[name];
-    localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
-    btn.classList.remove('active');
-    btn.querySelector('.of-display').textContent = '+';
-    actionButtons[name].style.display = 'none';
+        sendPayload(payload, config.webAppUrl);
 
-    status.textContent = 'Turno fechado: ' + name;
-    status.style.color = 'orange';
+        delete activeSessions[name];
+        localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
+        btn.classList.remove('active');
+        btn.querySelector('.of-display').textContent = '+';
+        actionButtons[name].style.display = 'none';
+
+        status.textContent = 'Turno fechado: ' + name;
+        status.style.color = 'orange';
+        closeModal();
+      };
+      modal.appendChild(confirmBtn);
+
+      var cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancelar';
+      cancelBtn.onclick = function () {
+        status.textContent = 'Operação cancelada';
+        status.style.color = 'orange';
+        closeModal();
+      };
+      modal.appendChild(cancelBtn);
+    });
   }
 
   function showActionMenu(name, btn) {
