@@ -5,6 +5,21 @@ document.addEventListener('DOMContentLoaded', function () {
   var status = document.getElementById('status');
   var activeEmployee = null;
   var currentOF = '';
+  var statusTimeoutId = null;
+
+  function setStatus(message, color) {
+    if (statusTimeoutId) {
+      clearTimeout(statusTimeoutId);
+      statusTimeoutId = null;
+    }
+    status.textContent = message || '';
+    if (color) status.style.color = color;
+    if (message) {
+      statusTimeoutId = setTimeout(function () {
+        status.textContent = '';
+      }, 30000);
+    }
+  }
 
   // Cria os botões dos funcionários
   config.names.forEach(function (name) {
@@ -98,11 +113,9 @@ document.addEventListener('DOMContentLoaded', function () {
     xhr.onreadystatechange = function () {
       if (xhr.readyState === 4) {
         if (xhr.status === 200) {
-          status.textContent = 'Registado: ' + activeEmployee + ' [' + currentOF + ']';
-          status.style.color = 'green';
+          setStatus('Registado: ' + activeEmployee + ' [' + currentOF + ']', 'green');
         } else {
-          status.textContent = 'Erro: ligação falhou.';
-          status.style.color = 'red';
+          setStatus('Erro: ligação falhou.', 'red');
         }
       }
     };

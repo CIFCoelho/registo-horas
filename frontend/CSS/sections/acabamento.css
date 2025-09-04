@@ -61,10 +61,40 @@
 .modal button {
   width: 100%;
   margin: 4px 0;
-  padding: 0.5rem;
+  padding: 0.6rem;
   background: #038843;
   color: #fff;
   border: none;
   border-radius: 6px;
   font-size: 18px;
+}
+
+/* Larger, easier-to-tap dialogs on iPad and larger screens */
+@media (min-width: 768px) {
+  .modal {
+    width: 540px;
+    padding: 1.25rem 1.5rem;
+  }
+  .modal h3 {
+    font-size: 26px;
+    margin-top: 0;
+  }
+  .modal div,
+  .modal label {
+    font-size: 20px;
+  }
+  .modal button {
+    font-size: 22px;
+    padding: 0.8rem 1rem;
+  }
+  .modal select {
+    font-size: 20px;
+    padding: 0.5rem;
+    border-radius: 6px;
+  }
+  .modal input[type="radio"] {
+    /* Enlarge radio hit area for touch */
+    transform: scale(1.4);
+    margin-right: 8px;
+  }
 }

@@ -8,6 +8,21 @@ document.addEventListener('DOMContentLoaded', function () {
   var activeSessions = {};
   var actionButtons = {};
   var modalOverlay = null;
+  var statusTimeoutId = null;
+
+  function setStatus(message, color) {
+    if (statusTimeoutId) {
+      clearTimeout(statusTimeoutId);
+      statusTimeoutId = null;
+    }
+    status.textContent = message || '';
+    if (color) status.style.color = color;
+    if (message) {
+      statusTimeoutId = setTimeout(function () {
+        status.textContent = '';
+      }, 30000); // auto-hide after 30 seconds
+    }
+  }
 
   if (localStorage.getItem('activeSessions')) {
     activeSessions = JSON.parse(localStorage.getItem('activeSessions'));
@@ -154,8 +169,7 @@ document.addEventListener('DOMContentLoaded', function () {
     } else if (key === 'OK') {
       if (currentOF && activeEmployee) {
         if (isSwitchingOF && activeSessions[activeEmployee] === currentOF) {
-          status.textContent = 'Erro: já está nessa OF.';
-          status.style.color = 'red';
+          setStatus('Erro: já está nessa OF.', 'red');
           return;
         }
         sendAction(btn, isSwitchingOF);
@@ -209,8 +223,7 @@ document.addEventListener('DOMContentLoaded', function () {
     btn.querySelector('.of-display').textContent = currentOF;
     actionButtons[activeEmployee].style.display = 'inline-block';
 
-    status.textContent = 'Registado: ' + activeEmployee + ' [' + currentOF + ']';
-    status.style.color = 'green';
+    setStatus('Registado: ' + activeEmployee + ' [' + currentOF + ']', 'green');
     currentOF = '';
     activeEmployee = null;
     keypad.innerHTML = '';
@@ -254,8 +267,7 @@ document.addEventListener('DOMContentLoaded', function () {
         btn.querySelector('.of-display').textContent = '+';
         actionButtons[name].style.display = 'none';
 
-        status.textContent = 'Turno fechado: ' + name;
-        status.style.color = 'orange';
+        setStatus('Turno fechado: ' + name, 'orange');
         closeModal();
       };
       modal.appendChild(confirmBtn);
@@ -263,8 +275,7 @@ document.addEventListener('DOMContentLoaded', function () {
       var cancelBtn = document.createElement('button');
       cancelBtn.textContent = 'Cancelar';
       cancelBtn.onclick = function () {
-        status.textContent = 'Operação cancelada';
-        status.style.color = 'orange';
+        setStatus('Operação cancelada', 'orange');
         closeModal();
       };
       modal.appendChild(cancelBtn);
@@ -353,13 +364,11 @@ document.addEventListener('DOMContentLoaded', function () {
       enviar.onclick = function () {
         var tipoRadio = modal.querySelector('input[name="tipo"]:checked');
         if (!tipoRadio) {
-          status.textContent = 'Selecione o tipo de acabamento';
-          status.style.color = 'red';
+          setStatus('Selecione o tipo de acabamento', 'red');
           return;
         }
         if (!colabSelect.value) {
-          status.textContent = 'Escolha outro colaborador';
-          status.style.color = 'red';
+          setStatus('Escolha outro colaborador', 'red');
           return;
         }
         finishIncompleteAction(name, tipoRadio.value, colabSelect.value, tempoSelect.value);
@@ -386,14 +395,12 @@ document.addEventListener('DOMContentLoaded', function () {
       hora: hora
     };
     sendPayload(payload, config.webAppUrl);
-    status.textContent = 'Complemento registado';
-    status.style.color = 'green';
+    setStatus('Complemento registado', 'green');
   }
 
   function cancelCurrentShift(name, btn) {
     if (!activeSessions[name]) {
-      status.textContent = 'Sem turno para cancelar';
-      status.style.color = 'red';
+      setStatus('Sem turno para cancelar', 'red');
       return;
     }
     var now = new Date();
@@ -410,8 +417,7 @@ document.addEventListener('DOMContentLoaded', function () {
     btn.classList.remove('active');
     btn.querySelector('.of-display').textContent = '+';
     actionButtons[name].style.display = 'none';
-    status.textContent = 'Turno cancelado: ' + name;
-    status.style.color = 'orange';
+    setStatus('Turno cancelado: ' + name, 'orange');
   }
 
   function openModal(builder) {
