@@ -243,7 +243,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
       var info = document.createElement('div');
       var ofNum = activeSessions[name];
-      info.textContent = 'Tem a certeza que quer terminar o turno de ' + name + (ofNum ? ' na OF ' + ofNum : '') + '?';
+      info.textContent = 'Terminar turno de ' + name + (ofNum ? ' da OF ' + ofNum : '') + '?';
       modal.appendChild(info);
 
       var confirmBtn = document.createElement('button');
