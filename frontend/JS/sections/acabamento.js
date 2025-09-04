@@ -89,10 +89,30 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   function sendPayload(data, url) {
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', url, true);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+          var ok = xhr.status >= 200 && xhr.status < 300;
+          if (!ok) {
+            console.error('❌ Falha ao enviar', data, xhr.status, xhr.responseText);
+            setStatus('Erro: ligação falhou (' + xhr.status + ')', 'red');
+          } else {
+            console.log('✅ Enviado com sucesso', data, xhr.responseText);
+          }
+        }
+      };
+      xhr.onerror = function () {
+        console.error('❌ Erro de rede ao enviar', data);
+        setStatus('Erro de rede ao comunicar com o servidor', 'red');
+      };
+      xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
+    } catch (e) {
+      console.error('❌ Exceção ao enviar', e);
+      setStatus('Erro inesperado ao enviar', 'red');
+    }
   }
 
   function handleEmployeeClick(name, btn) {
