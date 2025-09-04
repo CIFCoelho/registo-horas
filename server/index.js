@@ -1,6 +1,9 @@
 // server/index.js
 require('dotenv').config(); // load env first
 
+// Force Node's local timezone to Europe/Lisbon (fallback when env var cannot be set in hosting)
+process.env.TZ = process.env.TZ || 'Europe/Lisbon';
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const cron = require('node-cron');
