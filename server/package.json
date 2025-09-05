@@ -11,6 +11,9 @@
     "express": "^5.1.0",
     "node-cron": "^3.0.2"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

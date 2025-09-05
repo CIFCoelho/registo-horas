@@ -12,6 +12,7 @@ const cron = require('node-cron');
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const DATABASE_ID = process.env.ACABAMENTO_DB_ID;
 const PORT = process.env.PORT || 8787;
+const CRON_SECRET = process.env.CRON_SECRET || '';
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io/registo-horas/frontend/HTML/acabamento.html';
 
 // Guard rails: fail fast if secrets are missing
@@ -312,8 +313,58 @@ async function handleFinishIncomplete(data) {
 
 // Auto-close jobs (exactly at 12:00 and 17:00 Lisbon time)
 // At 12:00, subtract 10 minutes for the morning break
-cron.schedule('0 12 * * *', () => autoClose('12:00', { subtractMinutes: 10 }), { timezone: 'Europe/Lisbon' });
-cron.schedule('0 17 * * *', () => autoClose('17:00'), { timezone: 'Europe/Lisbon' });
+cron.schedule(
+  '0 12 * * *',
+  async () => {
+    try {
+      console.log('[CRON] Running auto-close for 12:00');
+      await autoClose('12:00', { subtractMinutes: 10 });
+      console.log('[CRON] Completed auto-close for 12:00');
+    } catch (e) {
+      console.error('[CRON] Auto-close 12:00 failed:', e);
+    }
+  },
+  { timezone: 'Europe/Lisbon' }
+);
+cron.schedule(
+  '0 17 * * *',
+  async () => {
+    try {
+      console.log('[CRON] Running auto-close for 17:00');
+      await autoClose('17:00');
+      console.log('[CRON] Completed auto-close for 17:00');
+    } catch (e) {
+      console.error('[CRON] Auto-close 17:00 failed:', e);
+    }
+  },
+  { timezone: 'Europe/Lisbon' }
+);
+
+// Safety re-runs in case a minute was missed by host latency
+cron.schedule(
+  '10,20 12 * * *',
+  async () => {
+    try {
+      console.log('[CRON] Safety re-run auto-close for 12:00 (10/20)');
+      await autoClose('12:00', { subtractMinutes: 10 });
+    } catch (e) {
+      console.error('[CRON] Safety 12:00 failed:', e);
+    }
+  },
+  { timezone: 'Europe/Lisbon' }
+);
+cron.schedule(
+  '10,20,30 17 * * *',
+  async () => {
+    try {
+      console.log('[CRON] Safety re-run auto-close for 17:00 (10/20/30)');
+      await autoClose('17:00');
+    } catch (e) {
+      console.error('[CRON] Safety 17:00 failed:', e);
+    }
+  },
+  { timezone: 'Europe/Lisbon' }
+);
 
 async function autoClose(timeStr, opts = {}) {
   const subtract = Number(opts.subtractMinutes || 0);
@@ -354,6 +405,49 @@ async function autoClose(timeStr, opts = {}) {
     }
   }
 }
+
+// Manual/External trigger for auto-close (for use with external cron/uptime pings)
+// Example: GET /cron/auto-close?time=17:00&key=SECRET
+app.get('/cron/auto-close', async (req, res) => {
+  try {
+    const provided = req.query.key || req.headers['x-cron-key'];
+    if (CRON_SECRET && provided !== CRON_SECRET) {
+      return res.status(403).json({ ok: false, error: 'Forbidden' });
+    }
+    const time = String(req.query.time || '17:00');
+    const subtract = Number(req.query.subtract || (time === '12:00' ? 10 : 0));
+    console.log(`[MANUAL] Trigger auto-close for ${time} (subtract ${subtract})`);
+    await autoClose(time, { subtractMinutes: subtract });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[MANUAL] Auto-close failed:', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// Catch-up at startup: if server boots after the expected time, close leftovers
+(async function startupCatchUp() {
+  try {
+    const now = new Date();
+    const tz = 'Europe/Lisbon';
+    // Compute local Lisbon time using the TZ environment that we forced above
+    const hour = now.getHours();
+    const minute = now.getMinutes();
+
+    // If after 12:05, try the 12:00 closure (idempotent for open shifts)
+    if (hour > 12 || (hour === 12 && minute >= 5)) {
+      console.log('[BOOT] Catch-up: try 12:00 auto-close');
+      try { await autoClose('12:00', { subtractMinutes: 10 }); } catch (e) { console.warn('[BOOT] 12:00 catch-up failed:', e.message || e); }
+    }
+    // If after 17:05, try the 17:00 closure
+    if (hour > 17 || (hour === 17 && minute >= 5)) {
+      console.log('[BOOT] Catch-up: try 17:00 auto-close');
+      try { await autoClose('17:00'); } catch (e) { console.warn('[BOOT] 17:00 catch-up failed:', e.message || e); }
+    }
+  } catch (e) {
+    console.warn('[BOOT] Catch-up scheduling failed:', e.message || e);
+  }
+})();
 
 // 🚀 Start the server
 app.listen(PORT, () => {
