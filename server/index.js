@@ -14,6 +14,8 @@ const DATABASE_ID = process.env.ACABAMENTO_DB_ID;
 const PORT = process.env.PORT || 8787;
 const CRON_SECRET = process.env.CRON_SECRET || '';
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io/registo-horas/frontend/HTML/acabamento.html';
+const KEEPALIVE_URL = process.env.KEEPALIVE_URL || '';
+const KEEPALIVE_ENABLED = (process.env.KEEPALIVE_ENABLED || 'true') !== 'false';
 
 // Guard rails: fail fast if secrets are missing
 if (!NOTION_TOKEN || !DATABASE_ID) {
@@ -365,6 +367,42 @@ cron.schedule(
   },
   { timezone: 'Europe/Lisbon' }
 );
+
+// Keep-alive during work hours (Mon-Fri 07:30–17:30 Lisbon).
+function isWithinWorkWindow(now = new Date()) {
+  const dow = now.getDay(); // 0=Sun, 1=Mon ... 6=Sat
+  if (dow === 0 || dow === 6) return false; // weekends
+  const h = now.getHours();
+  const m = now.getMinutes();
+  if (h < 7 || h > 17) return false;
+  if (h === 7 && m < 30) return false;
+  if (h === 17 && m > 30) return false;
+  return true;
+}
+
+async function keepAlivePing() {
+  if (!KEEPALIVE_ENABLED) return;
+  if (!isWithinWorkWindow()) return;
+  const url = KEEPALIVE_URL || `http://localhost:${PORT}/health`;
+  try {
+    const resp = await fetch(url, { method: 'GET', redirect: 'manual', headers: { 'User-Agent': 'keepalive-ping' } });
+    console.log(`[KEEPALIVE] Ping ${url} -> ${resp.status}`);
+  } catch (e) {
+    console.warn('[KEEPALIVE] Ping failed:', e.message || e);
+  }
+}
+
+// Ping every 5 minutes within 07:30–17:30, Mon–Fri
+cron.schedule(
+  '*/5 7-17 * * 1-5',
+  async () => {
+    try { await keepAlivePing(); } catch (_) {}
+  },
+  { timezone: 'Europe/Lisbon' }
+);
+
+// Kick an immediate ping on boot if within the window
+(async () => { try { await keepAlivePing(); } catch (_) {} })();
 
 async function autoClose(timeStr, opts = {}) {
   const subtract = Number(opts.subtractMinutes || 0);
