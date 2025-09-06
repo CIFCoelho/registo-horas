@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var currentOF = '';
   var activeSessions = {};
   var actionButtons = {};
+  var employeeButtons = {};
   var modalOverlay = null;
   var statusTimeoutId = null;
 
@@ -62,6 +63,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     controls.appendChild(actionBtn);
     actionButtons[name] = actionBtn;
+    employeeButtons[name] = btn;
 
     ofDisplay.onclick = function (e) {
       e.stopPropagation();
@@ -114,6 +116,92 @@ document.addEventListener('DOMContentLoaded', function () {
       setStatus('Erro inesperado ao enviar', 'red');
     }
   }
+
+  // Periodically reconcile local UI with backend open shifts
+  function getOpenEndpoint() {
+    // Expecting config.webAppUrl to end with '/acabamento'
+    try {
+      if (config.webAppUrl.slice(-11) === '/acabamento') return config.webAppUrl + '/open';
+      return config.webAppUrl.replace(/\/?$/, '') + '/open';
+    } catch (e) { return config.webAppUrl + '/open'; }
+  }
+
+  function applySessionsToUI(serverMap) {
+    // serverMap: { [name]: of }
+    var changed = false;
+    // Remove local sessions not present on server
+    for (var localName in activeSessions) {
+      if (!serverMap[localName]) {
+        delete activeSessions[localName];
+        changed = true;
+      }
+    }
+    // Apply/overwrite sessions from server
+    for (var name in serverMap) {
+      if (activeSessions[name] !== serverMap[name]) {
+        activeSessions[name] = serverMap[name];
+        changed = true;
+      }
+    }
+    if (changed) localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
+
+    // Reflect in UI
+    for (var i = 0; i < config.names.length; i++) {
+      var n = config.names[i];
+      var btn = employeeButtons[n];
+      var ofDisplay = btn && btn.querySelector('.of-display');
+      var actionBtn = actionButtons[n];
+      if (!btn || !ofDisplay || !actionBtn) continue;
+      if (activeSessions[n]) {
+        btn.classList.add('active');
+        ofDisplay.textContent = activeSessions[n];
+        actionBtn.style.display = 'inline-block';
+      } else {
+        btn.classList.remove('active');
+        ofDisplay.textContent = '+';
+        actionBtn.style.display = 'none';
+      }
+    }
+  }
+
+  function syncOpenSessions() {
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', getOpenEndpoint(), true);
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              var resp = JSON.parse(xhr.responseText || '{}');
+              if (resp && resp.ok && resp.sessions) {
+                var map = {};
+                for (var i = 0; i < resp.sessions.length; i++) {
+                  var s = resp.sessions[i];
+                  if (s && s.funcionario) {
+                    map[s.funcionario] = s.of ? String(s.of) : '';
+                  }
+                }
+                applySessionsToUI(map);
+              }
+            } catch (e) { /* ignore parse errors */ }
+          } else {
+            // ignore network/cors errors silently; UI remains usable offline
+          }
+        }
+      };
+      xhr.send();
+    } catch (e) { /* ignore */ }
+  }
+
+  // Initial sync after load, then periodic to catch auto-close events.
+  // Use a conservative interval to avoid hammering the backend.
+  setTimeout(syncOpenSessions, 1500);
+  setInterval(syncOpenSessions, 120000); // every 2 min
+  // Also resync when returning to the page (after lunch / screen wake)
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) syncOpenSessions();
+  });
+  window.addEventListener('pageshow', function () { syncOpenSessions(); });
 
   function handleEmployeeClick(name, btn) {
     activeEmployee = name;

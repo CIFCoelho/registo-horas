@@ -121,6 +121,41 @@ app.post('/acabamento', async (req, res) => {
   }
 });
 
+// List open shifts to let the frontend reconcile its local UI state
+app.get('/acabamento/open', async (req, res) => {
+  try {
+    let start_cursor = undefined;
+    const sessions = [];
+    do {
+      const query = {
+        filter: { property: 'Final do Turno', date: { is_empty: true } },
+        sorts: [{ property: 'Início do Turno', direction: 'ascending' }],
+        page_size: 100,
+        ...(start_cursor ? { start_cursor } : {})
+      };
+      const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
+        method: 'POST', headers, body: JSON.stringify(query)
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Notion query failed (${resp.status}): ${text}`);
+      }
+      const json = await resp.json();
+      for (const page of json.results || []) {
+        const name = (page.properties?.['Colaborador']?.title?.[0]?.plain_text || '').trim();
+        const of = page.properties?.['Ordem de Fabrico']?.number || null;
+        const start = page.properties?.['Início do Turno']?.date?.start || null;
+        if (name) sessions.push({ funcionario: name, of, start, id: page.id });
+      }
+      start_cursor = json.has_more ? json.next_cursor : undefined;
+    } while (start_cursor);
+
+    res.json({ ok: true, sessions });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // --- helpers ---
 
 function hhmmToTodayISO(hhmm) {
@@ -407,41 +442,76 @@ cron.schedule(
 async function autoClose(timeStr, opts = {}) {
   const subtract = Number(opts.subtractMinutes || 0);
   const endDate = new Date(hhmmToTodayISO(timeStr));
-  const endISO = new Date(endDate.getTime() - subtract * 60_000).toISOString();
+  const endDateISO = endDate.toISOString(); // use for filter threshold
+  const appliedEndISO = new Date(endDate.getTime() - subtract * 60_000).toISOString(); // use for write
 
-  const query = {
-    filter: { property: 'Final do Turno', date: { is_empty: true } }
+  // Only close shifts that started on/before the intended end time.
+  // This avoids accidentally closing newly-started afternoon shifts
+  // when the safety re-run (e.g., 12:10) executes.
+  const baseFilter = {
+    and: [
+      { property: 'Final do Turno', date: { is_empty: true } },
+      { property: 'Início do Turno', date: { on_or_before: endDateISO } }
+    ]
   };
 
-  const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(query)
-  });
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Notion query failed (${resp.status}): ${text}`);
-  }
-  const json = await resp.json();
-  for (const page of json.results || []) {
-    const payload = {
-      properties: {
-        'Final do Turno': { date: { start: endISO } },
-        'Notas do Sistema': {
-          rich_text: [{ text: { content: `Fechado automaticamente às ${timeStr}${subtract ? ` (−${subtract} min pausa manhã)` : ''}` } }]
-        }
-      }
+  let start_cursor = undefined;
+  let totalUpdated = 0;
+  let batch = 0;
+  do {
+    const query = {
+      filter: baseFilter,
+      sorts: [{ property: 'Início do Turno', direction: 'ascending' }],
+      page_size: 100,
+      ...(start_cursor ? { start_cursor } : {})
     };
-    const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
-      method: 'PATCH',
+
+    const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
+      method: 'POST',
       headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(query)
     });
-    if (!resp2.ok) {
-      const text = await resp2.text();
-      console.error(`AutoClose update failed (${resp2.status}): ${text}`);
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Notion query failed (${resp.status}): ${text}`);
     }
-  }
+    const json = await resp.json();
+    const pages = json.results || [];
+    batch += 1;
+    console.log(`[AUTO-CLOSE] Batch ${batch}: ${pages.length} open pages to close (<= ${timeStr})`);
+
+    for (const page of pages) {
+      // Preserve and append to existing notes if present
+      const existingNotes = (page.properties?.['Notas do Sistema']?.rich_text || [])
+        .map((r) => r.plain_text || (r.text && r.text.content) || '')
+        .join(' ')
+        .trim();
+      const noteMsg = `Fechado automaticamente às ${timeStr}${subtract ? ` (−${subtract} min pausa manhã)` : ''}`;
+      const combinedNotes = existingNotes ? `${existingNotes} | ${noteMsg}` : noteMsg;
+
+      const payload = {
+        properties: {
+          'Final do Turno': { date: { start: appliedEndISO } },
+          'Notas do Sistema': { rich_text: [{ text: { content: combinedNotes } }] }
+        }
+      };
+      const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(payload)
+      });
+      if (!resp2.ok) {
+        const text = await resp2.text();
+        console.error(`AutoClose update failed (${resp2.status}): ${text}`);
+      } else {
+        totalUpdated += 1;
+      }
+    }
+
+    start_cursor = json.has_more ? json.next_cursor : undefined;
+  } while (start_cursor);
+
+  console.log(`[AUTO-CLOSE] Completed ${timeStr}: updated ${totalUpdated} page(s).`);
 }
 
 // Manual/External trigger for auto-close (for use with external cron/uptime pings)

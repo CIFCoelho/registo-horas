@@ -37,7 +37,15 @@ Endpoints relevantes (backend):
 - `GET /health` – status/CORS configurado
 - `GET /notion/whoami` – valida o token (mostra o “bot user”)
 - `GET /notion/meta` – lê metadados da base de dados (título e tipos)
-- `POST /acabamento` – recebe ações do frontend (start/end/cancel/finishIncomplete)
+- `POST /acabamento` – recebe ações do frontend (`start`, `end`, `cancel`, `finishIncomplete`)
+- `GET /acabamento/open` – lista turnos em aberto para conciliação do frontend (sincronização de UI)
+- `GET /cron/auto-close?time=HH:MM&key=SECRET[&subtract=MIN]` – trigger manual/externo do auto‑fecho (usa‑se com um agendador externo)
+
+Semântica de ações (`POST /acabamento`):
+- `start`: cria página com “Colaborador”, “Ordem de Fabrico” e “Início do Turno” (data ISO do dia + hora dada).
+- `end`: fecha o turno mais recente em aberto do colaborador, definindo “Final do Turno”.
+- `cancel`: fecha o turno em aberto e acrescenta “Notas do Sistema: Turno cancelado manualmente”.
+- `finishIncomplete`: ajusta “Início do Turno” para a frente em `minutosRestantes` (desconta esse tempo) e acrescenta nota com o tipo e quem iniciou.
 ```
 
 ---
@@ -108,6 +116,7 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
    - O segundo clique regista o fim
    - Opções de **Cancelar** e **Terminar Incompleto** funcionam
    - Os dados são enviados via `POST` para o backend Node.js
+   - A lista de turnos em aberto é retornada por `GET /acabamento/open` e a UI sincroniza sozinha após auto‑fecho
 
 ---
 
@@ -122,7 +131,10 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 - Variáveis de ambiente (na Render, não no GitHub Pages):
   - `NOTION_TOKEN` – token da integração Notion (prefixo atual: `ntn_…`)
   - `ACABAMENTO_DB_ID` – ID da base de dados no Notion
-  - `ALLOW_ORIGIN` – `https://cifcoelho.github.io`
+  - `ALLOW_ORIGIN` – pode ser domínio simples (`https://cifcoelho.github.io`) ou lista separada por vírgulas; `*` permite todos (usar com cuidado)
+  - `CRON_SECRET` – secreto para proteger `GET /cron/auto-close`
+  - `KEEPALIVE_URL` – URL a pingar (ex.: o próprio `/health` via Render)
+  - `KEEPALIVE_ENABLED` – `true`/`false` (padrão `true`) para ativar o ping 07:30–17:30, dias úteis
   - `PORT` – opcional (Render ignora e usa a sua própria)
 - Depois do deploy, confirmar:
   - `GET https://registo-horas.onrender.com/health`
@@ -131,6 +143,7 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 
 Config do frontend (Acabamento):
 - `frontend/JS/config/acabamento.config.js:1` → `webAppUrl: 'https://registo-horas.onrender.com/acabamento'`
+- A página sincroniza periodicamente com `GET <webAppUrl>/open` para atualizar o estado visual (botão ativo) após auto‑fecho
 
 ### 2. Google Apps Script (legacy)
 
@@ -172,11 +185,13 @@ Config do frontend (Acabamento):
 - Requer que os dados sejam enviados como `application/x-www-form-urlencoded` com `data=<urlencoded JSON>`
 - Backend na Render (plano gratuito):
   - Adormece após ~15 min sem tráfego → a primeira chamada sofre “cold start” (10–60s)
-  - Tarefas `cron` internas não executam se o serviço estiver a dormir (ex.: auto‑fecho às 12:03/17:03)
+  - Tarefas `cron` internas podem falhar adormecido; o serviço inclui:
+    - Ping keep‑alive 07:30–17:30 em dias úteis (configurável)
+    - Endpoint manual `GET /cron/auto-close` para ser chamado por um agendador externo (recomendado)
   - Mitigações:
-    - Agendar um “wake-up ping” periódico ao endpoint `/health` (ex.: UptimeRobot 10–14 min)
-    - Criar endpoint de trigger e usar um agendador externo para o auto‑close
-    - Opcional: mudar para plano pago/sempre ligado se a latência for crítica
+    - Agendar um “wake‑up ping” periódico ao endpoint `/health` (ex.: UptimeRobot 10–14 min)
+    - Agendar o auto‑fecho externo: `GET /cron/auto-close?time=12:00&subtract=10&key=CRON_SECRET` e `GET /cron/auto-close?time=17:00&key=CRON_SECRET`
+    - Opcional: plano pago/sempre ligado se a latência for crítica
 
 ### Notion – notas importantes
 - O token da integração agora pode começar por `ntn_` (válido). O importante é ser o token da integração ativa e a DB estar partilhada com essa integração.
@@ -187,6 +202,20 @@ Config do frontend (Acabamento):
   - “Início do Turno” (date)
   - “Final do Turno” (date)
   - “Notas do Sistema” (rich_text)
+
+#### Auto‑fecho (Notion)
+- 12:00: fecha automaticamente turnos abertos com “Início do Turno” ≤ 12:00, registando “Final do Turno” às 11:50 (−10 min pausa manhã) e anotando em “Notas do Sistema”.
+- 17:00: fecha automaticamente turnos abertos com “Início do Turno” ≤ 17:00, registando “Final do Turno” às 17:00 (sem subtração), com nota.
+- Segurança: re‑execuções (12:10/12:20 e 17:10/17:20/17:30) aplicam filtros para nunca fechar turnos iniciados após a hora alvo.
+- Paginação: o backend percorre todas as páginas de resultados, não apenas as primeiras 100.
+
+#### Sincronização do frontend
+- A UI guarda o estado local dos turnos ativos em `localStorage`.
+- Um sincronizador leve faz `GET <webAppUrl>/open` no arranque, a cada 2 minutos e quando a página volta a estar visível, limpando/atualizando os botões “ativos” após auto‑fecho.
+- Compatibilidade: usa `XMLHttpRequest` para suportar Safari 9 (iPad 2).
+
+#### Fuso horário
+- O backend força `Europe/Lisbon` (`process.env.TZ`) para garantir consistência de horários no Notion e nos jobs de cron.
 
 ### Testes em tablets (iPad 2)
 - Aceder via GitHub Pages: `https://cifcoelho.github.io/registo-horas/frontend/HTML/acabamento.html`
