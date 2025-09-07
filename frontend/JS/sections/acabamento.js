@@ -11,6 +11,104 @@ document.addEventListener('DOMContentLoaded', function () {
   var modalOverlay = null;
   var statusTimeoutId = null;
 
+  // --- Time formatting helper (Safari 9 friendly) ---
+  function formatHHMM(d) {
+    var h = d.getHours();
+    var m = d.getMinutes();
+    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+  }
+
+  // --- Minimal offline queue ---
+  var QUEUE_KEY = 'acabamentoQueue';
+  var queueSending = false;
+  var FLUSH_INTERVAL_MS = 20000; // try every 20s
+  var MAX_QUEUE_AGE_MS = 30 * 60 * 1000; // 30 minutes
+
+  function loadQueue() {
+    try {
+      var raw = localStorage.getItem(QUEUE_KEY);
+      if (!raw) return [];
+      var arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (_) { return []; }
+  }
+  function saveQueue(q) {
+    try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q || [])); } catch (_) {}
+  }
+  function enqueueRequest(data, url) {
+    try {
+      var q = loadQueue();
+      q.push({ data: data, url: url, ts: Date.now(), retries: 0, next: Date.now() });
+      saveQueue(q);
+      setStatus('Sem ligação. Guardado para envio automático.', 'orange');
+      // Nudge a quick flush attempt
+      setTimeout(flushQueue, 1000);
+    } catch (_) {}
+  }
+  function sendQueueItem(item, cb) {
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', item.url, true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+          var ok = xhr.status >= 200 && xhr.status < 300;
+          if (ok) return cb(true);
+          // Retry for network/5xx/429; treat 4xx (except 429) as fatal
+          if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) return cb(false, true);
+          return cb(false, false);
+        }
+      };
+      xhr.onerror = function () { cb(false, true); };
+      xhr.send('data=' + encodeURIComponent(JSON.stringify(item.data)));
+    } catch (_) { cb(false, true); }
+  }
+  function flushQueue() {
+    if (queueSending) return;
+    var q = loadQueue();
+    var now = Date.now();
+    // Prune expired items (older than MAX_QUEUE_AGE_MS)
+    var kept = [];
+    for (var i = 0; i < q.length; i++) {
+      var it = q[i];
+      if (now - (it.ts || 0) <= MAX_QUEUE_AGE_MS) kept.push(it);
+    }
+    if (kept.length !== q.length) saveQueue(kept);
+    q = kept;
+    // Find next ready item
+    var idx = -1;
+    for (var j = 0; j < q.length; j++) {
+      if ((q[j].next || 0) <= now) { idx = j; break; }
+    }
+    if (idx === -1) return; // nothing ready
+    // Pop the item for sending, then re-save remaining queue
+    var item = q.splice(idx, 1)[0];
+    saveQueue(q);
+    queueSending = true;
+    sendQueueItem(item, function (success, shouldRetry) {
+      queueSending = false;
+      if (success) {
+        // Try to drain more quickly
+        setTimeout(flushQueue, 100);
+      } else if (shouldRetry) {
+        item.retries = (item.retries || 0) + 1;
+        var backoff = Math.min(10 * 60 * 1000, 5000 * Math.pow(2, Math.max(0, item.retries - 1))); // 5s,10s,20s,... cap 10m
+        item.next = Date.now() + backoff;
+        var q2 = loadQueue();
+        q2.push(item);
+        saveQueue(q2);
+      } else {
+        // Fatal error; drop item
+        setStatus('Erro permanente ao enviar um pedido. Verifique dados.', 'red');
+      }
+    });
+  }
+  // Periodic and event-based flush triggers
+  setInterval(flushQueue, FLUSH_INTERVAL_MS);
+  window.addEventListener('online', function () { setTimeout(flushQueue, 500); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) setTimeout(flushQueue, 500); });
+  window.addEventListener('pageshow', function () { setTimeout(flushQueue, 500); });
+
   function setStatus(message, color) {
     if (statusTimeoutId) {
       clearTimeout(statusTimeoutId);
@@ -100,7 +198,12 @@ document.addEventListener('DOMContentLoaded', function () {
           var ok = xhr.status >= 200 && xhr.status < 300;
           if (!ok) {
             console.error('❌ Falha ao enviar', data, xhr.status, xhr.responseText);
-            setStatus('Erro: ligação falhou (' + xhr.status + ')', 'red');
+            // Queue for retry on network/5xx/429
+            if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) {
+              enqueueRequest(data, url);
+            } else {
+              setStatus('Erro: ligação falhou (' + xhr.status + ')', 'red');
+            }
           } else {
             console.log('✅ Enviado com sucesso', data, xhr.responseText);
           }
@@ -108,12 +211,12 @@ document.addEventListener('DOMContentLoaded', function () {
       };
       xhr.onerror = function () {
         console.error('❌ Erro de rede ao enviar', data);
-        setStatus('Erro de rede ao comunicar com o servidor', 'red');
+        enqueueRequest(data, url);
       };
       xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
     } catch (e) {
       console.error('❌ Exceção ao enviar', e);
-      setStatus('Erro inesperado ao enviar', 'red');
+      enqueueRequest(data, url);
     }
   }
 
@@ -290,7 +393,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function sendAction(btn, isSwitchingOF) {
     var now = new Date();
-    var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+    var hora = formatHHMM(now);
 
     console.log('sendAction()', {
       isSwitchingOF: isSwitchingOF,
@@ -358,7 +461,7 @@ document.addEventListener('DOMContentLoaded', function () {
       confirmBtn.textContent = 'Terminar';
       confirmBtn.onclick = function () {
         var now = new Date();
-        var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+        var hora = formatHHMM(now);
 
         var payload = {
           funcionario: name,
@@ -493,7 +596,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function finishIncompleteAction(name, tipo, iniciou, tempo) {
     var now = new Date();
-    var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+    var hora = formatHHMM(now);
     var payload = {
       funcionario: name,
       acao: 'finishIncomplete',
@@ -512,7 +615,7 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     var now = new Date();
-    var hora = now.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+    var hora = formatHHMM(now);
     var payload = {
       funcionario: name,
       of: activeSessions[name],

@@ -12,7 +12,7 @@ Backend atual em produção: `https://registo-horas.onrender.com`
 
 - Registo de **início e fim de turno** por funcionário e OF (Ordem de Fabrico)
 - Compatível com **iPad 2 em modo quiosque (Safari 9.3.5)**
-- Funciona **offline até 30 minutos** com fila local (`localStorage`)
+- Funciona **offline até 30 minutos** com fila local (`localStorage`) – implementado na secção **Acabamento**
 - Envia registos para uma **Google Sheet** ou **Notion**, consoante a secção (no futuro todos serão enviados para o Notion)
 - Integração direta com o **Notion** através de um backend Node.js
 - Botão de ações para **cancelar turno** ou **registar acabamento incompleto**
@@ -54,14 +54,14 @@ Semântica de ações (`POST /acabamento`):
 
 ```plaintext
 registo-horas/
-├── docs/                # Site para GitHub Pages (html, js, configs)
-│   ├── index.html       # Página inicial com escolha de secções
-│   ├── JS/              # Lógica de fila, estados e envio
-│   ├── config/          # Configuração por secção (ex: acabamento.config.js)
-│   └── sections/        # HTML por secção
-├── backend/             # Código Google Apps Script (versão original)
-├── server/              # Backend Node.js para integração com Notion
-├── .github/workflows/   # Action para geração automática de `env.js` (URL do GAS)
+├── frontend/            # Frontend estático (publicável via GitHub Pages)
+│   ├── HTML/            # Páginas por secção (ex.: acabamento.html)
+│   ├── JS/
+│   │   ├── sections/    # Lógica por secção (ex.: acabamento.js)
+│   │   └── config/      # Configuração por secção (ex.: acabamento.config.js)
+│   └── CSS/             # Estilos
+├── server/              # Backend Node.js (Notion)
+├── index.html           # Página inicial (seleção de secções)
 └── README.md
 ```
 
@@ -109,14 +109,15 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 
 1. Clonar este repositório
 2. Instalar dependências e arrancar o backend em `server/` com `npm start`
-3. Servir a pasta com `npx http-server docs`
-4. Abrir `http://localhost:8080/index.html` e escolher uma secção
+3. Servir o repositório localmente (qualquer servidor estático). Ex.: `npx http-server .`
+4. Abrir `http://localhost:8080/index.html` e escolher uma secção (ex.: Acabamento)
 5. Confirmar que:
    - O clique no funcionário ativa o turno
    - O segundo clique regista o fim
    - Opções de **Cancelar** e **Terminar Incompleto** funcionam
    - Os dados são enviados via `POST` para o backend Node.js
    - A lista de turnos em aberto é retornada por `GET /acabamento/open` e a UI sincroniza sozinha após auto‑fecho
+   - Offline: com o backend parado/desligado, efetuar ações; ao reativar a rede, os pedidos pendentes são enviados automaticamente
 
 ---
 
@@ -131,7 +132,7 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 - Variáveis de ambiente (na Render, não no GitHub Pages):
   - `NOTION_TOKEN` – token da integração Notion (prefixo atual: `ntn_…`)
   - `ACABAMENTO_DB_ID` – ID da base de dados no Notion
-  - `ALLOW_ORIGIN` – pode ser domínio simples (`https://cifcoelho.github.io`) ou lista separada por vírgulas; `*` permite todos (usar com cuidado)
+  - `ALLOW_ORIGIN` – domínio(s) válidos apenas (sem caminho). Ex.: `https://cifcoelho.github.io` ou lista separada por vírgulas; `*` permite todos (usar com cuidado). O valor por omissão é `https://cifcoelho.github.io`.
   - `CRON_SECRET` – secreto para proteger `GET /cron/auto-close`
   - `KEEPALIVE_URL` – URL a pingar (ex.: o próprio `/health` via Render)
   - `KEEPALIVE_ENABLED` – `true`/`false` (padrão `true`) para ativar o ping 07:30–17:30, dias úteis
@@ -144,6 +145,7 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 Config do frontend (Acabamento):
 - `frontend/JS/config/acabamento.config.js:1` → `webAppUrl: 'https://registo-horas.onrender.com/acabamento'`
 - A página sincroniza periodicamente com `GET <webAppUrl>/open` para atualizar o estado visual (botão ativo) após auto‑fecho
+ - A secção **Acabamento** inclui uma fila offline mínima (até 30 min) que guarda pedidos quando não há ligação e os reenvia automaticamente com backoff exponencial
 
 ### 2. Google Apps Script (legacy)
 
@@ -152,11 +154,10 @@ Config do frontend (Acabamento):
 
 ### 3. GitHub Pages
 
-- O conteúdo de `docs/` é publicado automaticamente via GitHub Actions  
-- O ficheiro `env.js` com o URL é gerado dinamicamente no deploy:
-  ```js
-  window.ENV = { WEB_APP_URL: "https://script.google.com/..." };
-  ```
+- Ativar GitHub Pages: Source = "Deploy from a branch" → Branch `main` → `/ (root)`.
+- O site ficará acessível em `https://<utilizador>.github.io/registo-horas/index.html`.
+- Ligações diretas às secções: `frontend/HTML/acabamento.html`, `frontend/HTML/estofagem.html`, etc.
+- Conteúdo servido é estático (HTML/CSS/JS em `frontend/` e `index.html`).
 
 ---
 
@@ -212,7 +213,14 @@ Config do frontend (Acabamento):
 #### Sincronização do frontend
 - A UI guarda o estado local dos turnos ativos em `localStorage`.
 - Um sincronizador leve faz `GET <webAppUrl>/open` no arranque, a cada 2 minutos e quando a página volta a estar visível, limpando/atualizando os botões “ativos” após auto‑fecho.
-- Compatibilidade: usa `XMLHttpRequest` para suportar Safari 9 (iPad 2).
+- Compatibilidade: usa `XMLHttpRequest` para suportar Safari 9 (iPad 2). A hora (`hora`) é formatada em `HH:MM` via um fallback compatível, em vez de depender de `toLocaleTimeString` em navegadores antigos.
+
+#### Fila Offline – Acabamento
+- As ações `start`, `end`, `cancel`, `finishIncomplete` são enfileiradas em `localStorage` quando a rede falha (status 0/429/5xx) e reenviadas automaticamente.
+- Backoff exponencial: 5s, 10s, 20s, … até 10 min, com tentativa periódica a cada ~20s e também quando a página volta a estar visível/online.
+- Expiração: itens com mais de 30 minutos são descartados.
+- UI: mostra “Sem ligação. Guardado para envio automático.” quando um pedido é enfileirado.
+- Limitação conhecida: ao trocar de OF em modo offline, o pedido `start` pode chegar antes do `end` anterior; como o backend fecha “o turno mais recente” do colaborador, um `end` tardio pode fechar a OF mais recente. Mitigação futura: fechar por OF específica no backend.
 
 #### Fuso horário
 - O backend força `Europe/Lisbon` (`process.env.TZ`) para garantir consistência de horários no Notion e nos jobs de cron.
@@ -221,6 +229,7 @@ Config do frontend (Acabamento):
 - Aceder via GitHub Pages: `https://cifcoelho.github.io/registo-horas/frontend/HTML/acabamento.html`
 - Garantir que o backend respondeu recentemente (ou fazer um toque inicial para “acordar”)
 - Verificar início/fim/cancelamento e o “Terminar Incompleto”
+- Testar offline: desligar rede, efetuar ações, voltar a ligar e confirmar envio automático
 
 ### Outras secções
 - Recomenda‑se reutilizar o mesmo backend com novas rotas (`/estofagem`, `/pintura`, `/costura`) e variáveis `*_DB_ID` por secção.

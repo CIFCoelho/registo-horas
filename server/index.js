@@ -5,7 +5,6 @@ require('dotenv').config(); // load env first
 process.env.TZ = process.env.TZ || 'Europe/Lisbon';
 
 const express = require('express');
-const bodyParser = require('body-parser');
 const cron = require('node-cron');
 
 // ✅ Read ONLY from env
@@ -13,7 +12,7 @@ const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const DATABASE_ID = process.env.ACABAMENTO_DB_ID;
 const PORT = process.env.PORT || 8787;
 const CRON_SECRET = process.env.CRON_SECRET || '';
-const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io/registo-horas/frontend/HTML/acabamento.html';
+const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io';
 const KEEPALIVE_URL = process.env.KEEPALIVE_URL || '';
 const KEEPALIVE_ENABLED = (process.env.KEEPALIVE_ENABLED || 'true') !== 'false';
 
@@ -56,7 +55,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // Simple health endpoint
