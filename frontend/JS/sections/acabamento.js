@@ -188,7 +188,19 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
-  function sendPayload(data, url) {
+  function sendPayload(data, url, opts) {
+    opts = opts || {};
+    var settled = false;
+    function finish(success, queued) {
+      if (settled) return;
+      settled = true;
+      if (success) {
+        if (typeof opts.onSuccess === 'function') opts.onSuccess();
+      } else {
+        if (typeof opts.onError === 'function') opts.onError({ queued: queued });
+      }
+      if (typeof opts.onSettled === 'function') opts.onSettled(success, queued);
+    }
     try {
       var xhr = new XMLHttpRequest();
       xhr.open('POST', url, true);
@@ -201,22 +213,27 @@ document.addEventListener('DOMContentLoaded', function () {
             // Queue for retry on network/5xx/429
             if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) {
               enqueueRequest(data, url);
+              finish(false, true);
             } else {
               setStatus('Erro: ligação falhou (' + xhr.status + ')', 'red');
+              finish(false, false);
             }
           } else {
             console.log('✅ Enviado com sucesso', data, xhr.responseText);
+            finish(true, false);
           }
         }
       };
       xhr.onerror = function () {
         console.error('❌ Erro de rede ao enviar', data);
         enqueueRequest(data, url);
+        finish(false, true);
       };
       xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
     } catch (e) {
       console.error('❌ Exceção ao enviar', e);
       enqueueRequest(data, url);
+      finish(false, true);
     }
   }
 
@@ -391,50 +408,7 @@ document.addEventListener('DOMContentLoaded', function () {
     display.textContent = currentOF;
   }
 
-  function sendAction(btn, isSwitchingOF) {
-    var now = new Date();
-    var hora = formatHHMM(now);
-
-    console.log('sendAction()', {
-      isSwitchingOF: isSwitchingOF,
-      activeEmployee: activeEmployee,
-      currentOF: currentOF,
-      previousOF: activeSessions[activeEmployee]
-    });
-
-    var payloads = [];
-
-    if (isSwitchingOF && activeSessions[activeEmployee]) {
-      var endPayload = {
-        funcionario: activeEmployee,
-        of: activeSessions[activeEmployee],
-        acao: 'end',
-        hora: hora
-      };
-      payloads.push(endPayload);
-      console.log('📤 Enviar fim da OF anterior:', endPayload);
-    }
-
-    var startPayload = {
-      funcionario: activeEmployee,
-      of: currentOF,
-      acao: 'start',
-      hora: hora
-    };
-    payloads.push(startPayload);
-    console.log('📤 Enviar início da nova OF:', startPayload);
-
-    for (var i = 0; i < payloads.length; i++) {
-      sendPayload(payloads[i], config.webAppUrl);
-    }
-
-    activeSessions[activeEmployee] = currentOF;
-    localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
-    btn.classList.add('active');
-    btn.querySelector('.of-display').textContent = currentOF;
-    actionButtons[activeEmployee].style.display = 'inline-block';
-
-    setStatus('Registado: ' + activeEmployee + ' [' + currentOF + ']', 'green');
+  function resetKeypadState() {
     currentOF = '';
     activeEmployee = null;
     keypad.innerHTML = '';
@@ -442,6 +416,58 @@ document.addEventListener('DOMContentLoaded', function () {
     var buttons = document.querySelectorAll('.employee');
     for (var i = 0; i < buttons.length; i++) {
       buttons[i].classList.remove('selected');
+    }
+  }
+
+  function sendAction(btn, isSwitchingOF) {
+    var name = activeEmployee;
+    var newOF = currentOF;
+    var previousOF = activeSessions[name];
+
+    function applyStartUI() {
+      activeSessions[name] = newOF;
+      localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
+      btn.classList.add('active');
+      btn.querySelector('.of-display').textContent = newOF;
+      actionButtons[name].style.display = 'inline-block';
+      setStatus('Registado: ' + name + ' [' + newOF + ']', 'green');
+      resetKeypadState();
+    }
+
+    function sendStartPayload() {
+      var startHora = formatHHMM(new Date());
+      var startPayload = {
+        funcionario: name,
+        of: newOF,
+        acao: 'start',
+        hora: startHora
+      };
+      console.log('📤 Enviar início da OF:', startPayload);
+      sendPayload(startPayload, config.webAppUrl);
+      applyStartUI();
+    }
+
+    if (isSwitchingOF && previousOF) {
+      var endHora = formatHHMM(new Date());
+      var endPayload = {
+        funcionario: name,
+        of: previousOF,
+        acao: 'end',
+        hora: endHora
+      };
+      console.log('📤 Enviar fim da OF anterior:', endPayload);
+      sendPayload(endPayload, config.webAppUrl, {
+        onSettled: function (success, queued) {
+          if (!success && !queued) {
+            setStatus('Erro ao terminar turno atual. Tente novamente.', 'red');
+            resetKeypadState();
+            return;
+          }
+          sendStartPayload();
+        }
+      });
+    } else {
+      sendStartPayload();
     }
   }
 

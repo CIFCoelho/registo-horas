@@ -30,6 +30,7 @@
     var queueSending = false;
     var FLUSH_INTERVAL_MS = 20000;
     var MAX_QUEUE_AGE_MS = 30 * 60 * 1000; // 30 minutes
+    var switchingOF = false;
 
     function formatHHMM(date) {
       var h = date.getHours();
@@ -219,6 +220,13 @@
         prepareRegister(name);
       };
 
+      ofDisplay.onclick = function (evt) {
+        evt.stopPropagation();
+        if (activeSessions[name]) {
+          initiateOFChange(name);
+        }
+      };
+
       uiMap[name] = {
         card: card,
         ofDisplay: ofDisplay,
@@ -231,6 +239,16 @@
     function beginShift(name) {
       activeEmployee = name;
       currentOF = '';
+      switchingOF = false;
+      clearSelections();
+      if (uiMap[name]) uiMap[name].card.classList.add('selected');
+      showKeypad();
+    }
+
+    function initiateOFChange(name) {
+      activeEmployee = name;
+      currentOF = '';
+      switchingOF = true;
       clearSelections();
       if (uiMap[name]) uiMap[name].card.classList.add('selected');
       showKeypad();
@@ -241,6 +259,7 @@
       keypad.style.display = 'none';
       activeEmployee = null;
       currentOF = '';
+      switchingOF = false;
       clearSelections();
     }
 
@@ -297,27 +316,61 @@
 
     function submitStart(name, ofValue) {
       if (!name || !ofValue) return;
+      var previousOF = activeSessions[name] ? String(activeSessions[name]) : '';
+      if (switchingOF && previousOF === String(ofValue)) {
+        setStatus('Já está na OF ' + ofValue + '.', 'red');
+        closeKeypad();
+        return;
+      }
+
+      var wasSwitching = switchingOF && !!previousOF;
       closeKeypad();
 
-      var now = new Date();
-      var payload = {
-        acao: 'start',
-        funcionario: name,
-        of: ofValue,
-        hora: formatHHMM(now)
-      };
+      function applyStartUI() {
+        activeSessions[name] = String(ofValue);
+        persistActiveSessions();
+        updateCardState(name);
+        setStatus('Turno iniciado para ' + name + ' na OF ' + ofValue + '.', '#026042');
+      }
 
-      activeSessions[name] = String(ofValue);
-      persistActiveSessions();
-      updateCardState(name);
-      setStatus('Turno iniciado para ' + name + ' na OF ' + ofValue + '.', '#026042');
+      function sendStartPayload() {
+        var payload = {
+          acao: 'start',
+          funcionario: name,
+          of: ofValue,
+          hora: formatHHMM(new Date())
+        };
 
-      sendAction(payload, {
-        successMessage: 'Início registado para ' + name + '.',
-        onError: function () {
-          setStatus('Falha ao registar início para ' + name + '.', 'red');
-        }
-      });
+        sendAction(payload, {
+          onError: function () {
+            setStatus('Falha ao registar início para ' + name + '.', 'red');
+          }
+        });
+
+        applyStartUI();
+      }
+
+      if (wasSwitching) {
+        var endPayload = {
+          acao: 'end',
+          funcionario: name,
+          of: previousOF,
+          hora: formatHHMM(new Date())
+        };
+
+        sendAction(endPayload, {
+          onSettled: function (success, queued) {
+            if (!success && !queued) {
+              setStatus('Erro ao terminar turno atual. Tente novamente.', 'red');
+              scheduleSync(1500);
+              return;
+            }
+            sendStartPayload();
+          }
+        });
+      } else {
+        sendStartPayload();
+      }
     }
 
     function endShift(name) {
@@ -359,25 +412,33 @@
             if (ok) {
               if (opts.successMessage) setStatus(opts.successMessage, '#026042');
               if (typeof opts.onSuccess === 'function') opts.onSuccess();
+              if (typeof opts.onSettled === 'function') opts.onSettled(true, false);
               scheduleSync();
               return;
             }
             if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) {
               enqueueRequest(data);
+              if (typeof opts.onSettled === 'function') opts.onSettled(false, true);
+              scheduleSync();
               return;
             }
             var message = 'Erro: ' + (xhr.responseText || xhr.status);
             setStatus(message, 'red');
             if (typeof opts.onError === 'function') opts.onError();
+            if (typeof opts.onSettled === 'function') opts.onSettled(false, false);
             scheduleSync();
           }
         };
         xhr.onerror = function () {
           enqueueRequest(data);
+          if (typeof opts.onSettled === 'function') opts.onSettled(false, true);
+          scheduleSync();
         };
         xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
       } catch (_) {
         enqueueRequest(data);
+        if (typeof opts.onSettled === 'function') opts.onSettled(false, true);
+        scheduleSync();
       }
     }
 
