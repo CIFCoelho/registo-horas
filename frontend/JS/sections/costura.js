@@ -6,7 +6,7 @@ window.SECTION_CONFIG = {
   sheetName: 'Costura',
 
   /* Buttons for each person */
-  names: ['Diana', 'Sónia'],
+  names: ['Teresa', 'Antónia'],
 
   /* Break Periods */
   breakPeriods: [
