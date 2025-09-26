@@ -115,7 +115,7 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
    - O segundo clique regista o fim
    - Opções de **Cancelar** e **Terminar Incompleto** funcionam
    - Os dados são enviados via `POST` para o backend Node.js
-   - A lista de turnos em aberto é retornada por `GET /acabamento/open` e a UI sincroniza sozinha após auto‑fecho
+   - A lista de turnos em aberto é retornada por `GET /acabamento/open` e a UI sincroniza sozinha após fechos registados noutros dispositivos
    - Offline: com o backend parado/desligado, efetuar ações; ao reativar a rede, os pedidos pendentes são enviados automaticamente
 
 ---
@@ -206,7 +206,7 @@ Config do frontend (Acabamento):
 
 #### Sincronização do frontend
 - A UI guarda o estado local dos turnos ativos em `localStorage`.
-- Um sincronizador leve faz `GET <webAppUrl>/open` no arranque, a cada 2 minutos e quando a página volta a estar visível, limpando/atualizando os botões “ativos” após auto‑fecho.
+- Um sincronizador leve faz `GET <webAppUrl>/open` no arranque, a cada 2 minutos e quando a página volta a estar visível, limpando/atualizando os botões “ativos” após fechamentos registados noutros dispositivos.
 - Compatibilidade: usa `XMLHttpRequest` para suportar Safari 9 (iPad 2). A hora (`hora`) é formatada em `HH:MM` via um fallback compatível, em vez de depender de `toLocaleTimeString` em navegadores antigos.
 
 #### Fila Offline – Acabamento
