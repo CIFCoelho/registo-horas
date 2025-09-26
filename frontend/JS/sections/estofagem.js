@@ -25,6 +25,7 @@
     var uiMap = {};
     var openDropdown = null;
     var activeRegisterModal = null;
+    var activeConfirmDialog = null;
 
     var queueSending = false;
     var FLUSH_INTERVAL_MS = 20000;
@@ -321,26 +322,28 @@
 
     function endShift(name) {
       if (!activeSessions[name]) return;
-      if (!window.confirm('Terminar turno de ' + name + '?')) return;
 
-      var now = new Date();
-      var payload = {
-        acao: 'end',
-        funcionario: name,
-        of: activeSessions[name],
-        hora: formatHHMM(now)
-      };
+      var ofValue = activeSessions[name];
+      showConfirmDialog('Terminar turno de ' + name + '?', function () {
+        var now = new Date();
+        var payload = {
+          acao: 'end',
+          funcionario: name,
+          of: ofValue,
+          hora: formatHHMM(now)
+        };
 
-      delete activeSessions[name];
-      persistActiveSessions();
-      updateCardState(name);
-      setStatus('Turno terminado para ' + name + '.', '#026042');
+        delete activeSessions[name];
+        persistActiveSessions();
+        updateCardState(name);
+        setStatus('Turno terminado para ' + name + '.', '#026042');
 
-      sendAction(payload, {
-        successMessage: 'Fim registado para ' + name + '.',
-        onError: function () {
-          setStatus('Falha ao registar término para ' + name + '.', 'red');
-        }
+        sendAction(payload, {
+          successMessage: 'Fim registado para ' + name + '.',
+          onError: function () {
+            setStatus('Falha ao registar término para ' + name + '.', 'red');
+          }
+        });
       });
     }
 
@@ -443,7 +446,78 @@
       activeRegisterModal = null;
     }
 
+    function closeConfirmDialog() {
+      if (!activeConfirmDialog) return;
+      document.removeEventListener('keydown', activeConfirmDialog.onKeyDown);
+      if (activeConfirmDialog.overlay && activeConfirmDialog.overlay.parentNode) {
+        activeConfirmDialog.overlay.parentNode.removeChild(activeConfirmDialog.overlay);
+      }
+      activeConfirmDialog = null;
+    }
+
+    function showConfirmDialog(message, onConfirm) {
+      closeConfirmDialog();
+
+      var overlay = document.createElement('div');
+      overlay.className = 'estofagem-modal-overlay';
+
+      var modal = document.createElement('div');
+      modal.className = 'estofagem-modal confirm-dialog';
+
+      var text = document.createElement('p');
+      text.className = 'estofagem-confirm-message';
+      text.textContent = message;
+      modal.appendChild(text);
+
+      var actions = document.createElement('div');
+      actions.className = 'actions';
+
+      var confirmBtn = document.createElement('button');
+      confirmBtn.className = 'primary';
+      confirmBtn.type = 'button';
+      confirmBtn.textContent = 'Confirmar';
+
+      var cancelBtn = document.createElement('button');
+      cancelBtn.className = 'secondary';
+      cancelBtn.type = 'button';
+      cancelBtn.textContent = 'Cancelar';
+
+      confirmBtn.onclick = function () {
+        closeConfirmDialog();
+        if (typeof onConfirm === 'function') onConfirm();
+      };
+
+      cancelBtn.onclick = function () {
+        closeConfirmDialog();
+      };
+
+      actions.appendChild(confirmBtn);
+      actions.appendChild(cancelBtn);
+      modal.appendChild(actions);
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      overlay.onclick = function (evt) {
+        if (evt.target === overlay) closeConfirmDialog();
+      };
+
+      function onKeyDown(evt) {
+        if (evt.key === 'Escape' || evt.key === 'Esc') {
+          closeConfirmDialog();
+        }
+      }
+
+      document.addEventListener('keydown', onKeyDown);
+
+      activeConfirmDialog = {
+        overlay: overlay,
+        onKeyDown: onKeyDown
+      };
+    }
+
     function openRegisterModal(name, ofValue, optionsList) {
+      closeConfirmDialog();
       closeRegisterModal();
 
       var overlay = document.createElement('div');
