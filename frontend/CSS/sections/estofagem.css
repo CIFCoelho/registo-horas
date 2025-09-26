@@ -1,0 +1,232 @@
+body.estofagem-page #container {
+  max-width: 720px;
+}
+
+body.estofagem-page .employee-row {
+  display: flex;
+}
+
+body.estofagem-page .employee {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+body.estofagem-page .employee:hover {
+  transform: translateY(-1px);
+}
+
+body.estofagem-page .employee.selected {
+  background: #02733a;
+  box-shadow: 0 6px 18px rgba(2, 115, 58, 0.35);
+}
+
+body.estofagem-page .employee-name {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+body.estofagem-page .right-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+body.estofagem-page .right-controls > * + * {
+  margin-left: 12px;
+}
+
+body.estofagem-page .register-btn {
+  display: none;
+  border: none;
+  background: rgba(255, 255, 255, 0.9);
+  color: #026042;
+  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  padding: 10px 16px;
+  border-radius: 28px;
+  box-shadow: 0 2px 6px rgba(3, 136, 67, 0.2);
+}
+
+body.estofagem-page .employee.active .register-btn {
+  display: inline-block;
+}
+
+body.estofagem-page .employee.active {
+  background: #5cc4ff;
+  border: 2px solid #208bbd;
+  color: #013c5a;
+}
+
+body.estofagem-page .employee.active .employee-name {
+  color: inherit;
+}
+
+body.estofagem-page .of-display {
+  width: 56px;
+  height: 56px;
+  line-height: 56px;
+  font-size: 20px;
+  border-width: 2px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #038843;
+  border: 2px solid #038843;
+}
+
+body.estofagem-page .employee.active .of-display {
+  border-color: #208bbd;
+  color: #208bbd;
+}
+
+/* Register modal */
+.estofagem-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+
+.estofagem-modal {
+  width: 90%;
+  max-width: 420px;
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.18);
+}
+
+.estofagem-modal h2 {
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  text-align: center;
+  color: #026042;
+}
+
+.estofagem-modal .register-field {
+  margin-bottom: 16px;
+}
+
+.estofagem-modal label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #013c5a;
+}
+
+.estofagem-modal .selector-btn {
+  width: 100%;
+  background: #eef8ff;
+  border: 2px solid #1c8ac0;
+  color: #1c8ac0;
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 18px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.estofagem-modal .selector-btn[data-selected="true"] {
+  background: #1c8ac0;
+  color: #ffffff;
+}
+
+.estofagem-modal .dropdown {
+  margin-top: 10px;
+  background: #ffffff;
+  border: 1px solid rgba(28, 138, 192, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.estofagem-modal .dropdown button {
+  width: 100%;
+  padding: 12px 16px;
+  background: #ffffff;
+  border: none;
+  border-bottom: 1px solid rgba(28, 138, 192, 0.12);
+  text-align: left;
+  font-size: 17px;
+  color: #013c5a;
+}
+
+.estofagem-modal .dropdown button:last-child {
+  border-bottom: none;
+}
+
+.estofagem-modal .dropdown button:hover {
+  background: #eef8ff;
+}
+
+.estofagem-modal .dropdown-empty {
+  padding: 12px 16px;
+  color: #7a7a7a;
+  font-size: 16px;
+  text-align: center;
+}
+
+.estofagem-modal .actions {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.estofagem-modal .primary,
+.estofagem-modal .secondary {
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 18px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+}
+
+.estofagem-modal .primary {
+  background: #026042;
+  color: #ffffff;
+}
+
+.estofagem-modal .primary:disabled {
+  background: #7fb79c;
+  cursor: not-allowed;
+}
+
+.estofagem-modal .secondary {
+  background: transparent;
+  color: #7a7a7a;
+  border: 2px solid #7a7a7a;
+}
+
+@media (min-width: 768px) {
+  body.estofagem-page .employee-name {
+    font-size: 26px;
+  }
+  body.estofagem-page .register-btn {
+    font-size: 15px;
+    padding: 12px 20px;
+  }
+  body.estofagem-page .of-display {
+    width: 60px;
+    height: 60px;
+    line-height: 60px;
+    font-size: 22px;
+  }
+  .estofagem-modal {
+    max-width: 460px;
+    padding: 26px;
+  }
+  .estofagem-modal .selector-btn {
+    font-size: 20px;
+  }
+}
