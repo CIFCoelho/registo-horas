@@ -11,7 +11,6 @@ const cron = require('node-cron');
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const DATABASE_ID = process.env.ACABAMENTO_DB_ID;
 const PORT = process.env.PORT || 8787;
-const CRON_SECRET = process.env.CRON_SECRET || '';
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io';
 const KEEPALIVE_URL = process.env.KEEPALIVE_URL || '';
 const KEEPALIVE_ENABLED = (process.env.KEEPALIVE_ENABLED || 'true') !== 'false';
@@ -213,13 +212,46 @@ async function handleEnd(data) {
   if (!json.results || !json.results.length) throw new Error('Nenhum turno aberto encontrado');
 
   const page = json.results[0];
-  const endISO = hhmmToTodayISO(data.hora);
+  const requestedEndISO = hhmmToTodayISO(data.hora);
+  const requestedEndDate = new Date(requestedEndISO);
 
-  const payload = {
-    properties: {
-      'Final do Turno': { date: { start: endISO } }
+  const startProp = page.properties?.['Início do Turno']?.date?.start;
+  const startDate = startProp ? new Date(startProp) : null;
+
+  let appliedEndDate = requestedEndDate;
+  let noteToAppend = null;
+
+  if (startDate) {
+    const breakStart = new Date(startDate);
+    breakStart.setHours(10, 0, 0, 0);
+    const breakEnd = new Date(startDate);
+    breakEnd.setHours(10, 10, 0, 0);
+
+    const coversBreak = startDate <= breakStart && requestedEndDate >= breakEnd;
+
+    if (coversBreak) {
+      const adjusted = new Date(requestedEndDate.getTime() - 10 * 60_000);
+      if (adjusted > startDate) {
+        appliedEndDate = adjusted;
+        noteToAppend = 'Ajuste automático: pausa manhã (−10 min)';
+      }
     }
+  }
+
+  const properties = {
+    'Final do Turno': { date: { start: appliedEndDate.toISOString() } }
   };
+
+  if (noteToAppend) {
+    const existingNotes = (page.properties?.['Notas do Sistema']?.rich_text || [])
+      .map((r) => r.plain_text || (r.text && r.text.content) || '')
+      .join(' ')
+      .trim();
+    const combinedNotes = existingNotes ? `${existingNotes} | ${noteToAppend}` : noteToAppend;
+    properties['Notas do Sistema'] = { rich_text: [{ text: { content: combinedNotes } }] };
+  }
+
+  const payload = { properties };
 
   const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
@@ -347,61 +379,6 @@ async function handleFinishIncomplete(data) {
   }
 }
 
-// Auto-close jobs (exactly at 12:00 and 17:00 Lisbon time)
-// At 12:00, subtract 10 minutes for the morning break
-cron.schedule(
-  '0 12 * * *',
-  async () => {
-    try {
-      console.log('[CRON] Running auto-close for 12:00');
-      await autoClose('12:00', { subtractMinutes: 10 });
-      console.log('[CRON] Completed auto-close for 12:00');
-    } catch (e) {
-      console.error('[CRON] Auto-close 12:00 failed:', e);
-    }
-  },
-  { timezone: 'Europe/Lisbon' }
-);
-cron.schedule(
-  '0 17 * * *',
-  async () => {
-    try {
-      console.log('[CRON] Running auto-close for 17:00');
-      await autoClose('17:00');
-      console.log('[CRON] Completed auto-close for 17:00');
-    } catch (e) {
-      console.error('[CRON] Auto-close 17:00 failed:', e);
-    }
-  },
-  { timezone: 'Europe/Lisbon' }
-);
-
-// Safety re-runs in case a minute was missed by host latency
-cron.schedule(
-  '10,20 12 * * *',
-  async () => {
-    try {
-      console.log('[CRON] Safety re-run auto-close for 12:00 (10/20)');
-      await autoClose('12:00', { subtractMinutes: 10 });
-    } catch (e) {
-      console.error('[CRON] Safety 12:00 failed:', e);
-    }
-  },
-  { timezone: 'Europe/Lisbon' }
-);
-cron.schedule(
-  '10,20,30 17 * * *',
-  async () => {
-    try {
-      console.log('[CRON] Safety re-run auto-close for 17:00 (10/20/30)');
-      await autoClose('17:00');
-    } catch (e) {
-      console.error('[CRON] Safety 17:00 failed:', e);
-    }
-  },
-  { timezone: 'Europe/Lisbon' }
-);
-
 // Keep-alive during work hours (Mon-Fri 07:30–17:30 Lisbon).
 function isWithinWorkWindow(now = new Date()) {
   const dow = now.getDay(); // 0=Sun, 1=Mon ... 6=Sat
@@ -437,124 +414,6 @@ cron.schedule(
 
 // Kick an immediate ping on boot if within the window
 (async () => { try { await keepAlivePing(); } catch (_) {} })();
-
-async function autoClose(timeStr, opts = {}) {
-  const subtract = Number(opts.subtractMinutes || 0);
-  const endDate = new Date(hhmmToTodayISO(timeStr));
-  const endDateISO = endDate.toISOString(); // use for filter threshold
-  const appliedEndISO = new Date(endDate.getTime() - subtract * 60_000).toISOString(); // use for write
-
-  // Only close shifts that started on/before the intended end time.
-  // This avoids accidentally closing newly-started afternoon shifts
-  // when the safety re-run (e.g., 12:10) executes.
-  const baseFilter = {
-    and: [
-      { property: 'Final do Turno', date: { is_empty: true } },
-      { property: 'Início do Turno', date: { on_or_before: endDateISO } }
-    ]
-  };
-
-  let start_cursor = undefined;
-  let totalUpdated = 0;
-  let batch = 0;
-  do {
-    const query = {
-      filter: baseFilter,
-      sorts: [{ property: 'Início do Turno', direction: 'ascending' }],
-      page_size: 100,
-      ...(start_cursor ? { start_cursor } : {})
-    };
-
-    const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(query)
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Notion query failed (${resp.status}): ${text}`);
-    }
-    const json = await resp.json();
-    const pages = json.results || [];
-    batch += 1;
-    console.log(`[AUTO-CLOSE] Batch ${batch}: ${pages.length} open pages to close (<= ${timeStr})`);
-
-    for (const page of pages) {
-      // Preserve and append to existing notes if present
-      const existingNotes = (page.properties?.['Notas do Sistema']?.rich_text || [])
-        .map((r) => r.plain_text || (r.text && r.text.content) || '')
-        .join(' ')
-        .trim();
-      const noteMsg = `Fechado automaticamente às ${timeStr}${subtract ? ` (−${subtract} min pausa manhã)` : ''}`;
-      const combinedNotes = existingNotes ? `${existingNotes} | ${noteMsg}` : noteMsg;
-
-      const payload = {
-        properties: {
-          'Final do Turno': { date: { start: appliedEndISO } },
-          'Notas do Sistema': { rich_text: [{ text: { content: combinedNotes } }] }
-        }
-      };
-      const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify(payload)
-      });
-      if (!resp2.ok) {
-        const text = await resp2.text();
-        console.error(`AutoClose update failed (${resp2.status}): ${text}`);
-      } else {
-        totalUpdated += 1;
-      }
-    }
-
-    start_cursor = json.has_more ? json.next_cursor : undefined;
-  } while (start_cursor);
-
-  console.log(`[AUTO-CLOSE] Completed ${timeStr}: updated ${totalUpdated} page(s).`);
-}
-
-// Manual/External trigger for auto-close (for use with external cron/uptime pings)
-// Example: GET /cron/auto-close?time=17:00&key=SECRET
-app.get('/cron/auto-close', async (req, res) => {
-  try {
-    const provided = req.query.key || req.headers['x-cron-key'];
-    if (CRON_SECRET && provided !== CRON_SECRET) {
-      return res.status(403).json({ ok: false, error: 'Forbidden' });
-    }
-    const time = String(req.query.time || '17:00');
-    const subtract = Number(req.query.subtract || (time === '12:00' ? 10 : 0));
-    console.log(`[MANUAL] Trigger auto-close for ${time} (subtract ${subtract})`);
-    await autoClose(time, { subtractMinutes: subtract });
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('[MANUAL] Auto-close failed:', e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
-  }
-});
-
-// Catch-up at startup: if server boots after the expected time, close leftovers
-(async function startupCatchUp() {
-  try {
-    const now = new Date();
-    const tz = 'Europe/Lisbon';
-    // Compute local Lisbon time using the TZ environment that we forced above
-    const hour = now.getHours();
-    const minute = now.getMinutes();
-
-    // If after 12:05, try the 12:00 closure (idempotent for open shifts)
-    if (hour > 12 || (hour === 12 && minute >= 5)) {
-      console.log('[BOOT] Catch-up: try 12:00 auto-close');
-      try { await autoClose('12:00', { subtractMinutes: 10 }); } catch (e) { console.warn('[BOOT] 12:00 catch-up failed:', e.message || e); }
-    }
-    // If after 17:05, try the 17:00 closure
-    if (hour > 17 || (hour === 17 && minute >= 5)) {
-      console.log('[BOOT] Catch-up: try 17:00 auto-close');
-      try { await autoClose('17:00'); } catch (e) { console.warn('[BOOT] 17:00 catch-up failed:', e.message || e); }
-    }
-  } catch (e) {
-    console.warn('[BOOT] Catch-up scheduling failed:', e.message || e);
-  }
-})();
 
 // 🚀 Start the server
 app.listen(PORT, () => {

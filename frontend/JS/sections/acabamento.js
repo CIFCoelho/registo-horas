@@ -296,7 +296,7 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (e) { /* ignore */ }
   }
 
-  // Initial sync after load, then periodic to catch auto-close events.
+  // Initial sync after load, then periodic to catch remote updates.
   // Use a conservative interval to avoid hammering the backend.
   setTimeout(syncOpenSessions, 1500);
   setInterval(syncOpenSessions, 120000); // every 2 min
