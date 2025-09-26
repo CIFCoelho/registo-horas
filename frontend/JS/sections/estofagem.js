@@ -1,23 +1,40 @@
 (function () {
   document.addEventListener('DOMContentLoaded', function () {
     var config = window.SECTION_CONFIG || {};
+    var API_URL = (config.webAppUrl || '').replace(/\/$/, '');
+    var fallbackOptions = Array.isArray(config.acabamentoOptions) ? config.acabamentoOptions.slice() : [];
     var names = Array.isArray(config.names) ? config.names : [];
-    var acabamentoOptions = Array.isArray(config.acabamentoOptions) ? config.acabamentoOptions : [];
 
     var employeeList = document.getElementById('employee-list');
     var keypad = document.getElementById('of-keypad');
     var status = document.getElementById('status');
 
-    if (!employeeList) return;
+    if (!employeeList || !API_URL) {
+      console.warn('Estofagem: missing container or webAppUrl');
+      return;
+    }
 
+    var statusTimeoutId = null;
+    var syncTimeoutId = null;
     var activeEmployee = null;
     var currentOF = '';
-    var activeSessions = {};
-    var uiMap = {};
-    var statusTimeoutId = null;
 
-    var activeRegisterModal = null;
+    var ACTIVE_KEY = 'estofagemActiveSessions';
+    var QUEUE_KEY = 'estofagemQueue';
+    var activeSessions = loadActiveSessions();
+    var uiMap = {};
     var openDropdown = null;
+    var activeRegisterModal = null;
+
+    var queueSending = false;
+    var FLUSH_INTERVAL_MS = 20000;
+    var MAX_QUEUE_AGE_MS = 30 * 60 * 1000; // 30 minutes
+
+    function formatHHMM(date) {
+      var h = date.getHours();
+      var m = date.getMinutes();
+      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    }
 
     function setStatus(message, color) {
       if (statusTimeoutId) {
@@ -33,9 +50,127 @@
       }
     }
 
+    function scheduleSync(delay) {
+      if (syncTimeoutId) {
+        clearTimeout(syncTimeoutId);
+        syncTimeoutId = null;
+      }
+      syncTimeoutId = setTimeout(syncOpenSessions, typeof delay === 'number' ? delay : 2000);
+    }
+
+    function loadActiveSessions() {
+      try {
+        var raw = localStorage.getItem(ACTIVE_KEY);
+        if (!raw) return {};
+        var obj = JSON.parse(raw);
+        return obj && typeof obj === 'object' ? obj : {};
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function persistActiveSessions() {
+      try { localStorage.setItem(ACTIVE_KEY, JSON.stringify(activeSessions || {})); } catch (_) {}
+    }
+
+    function loadQueue() {
+      try {
+        var raw = localStorage.getItem(QUEUE_KEY);
+        if (!raw) return [];
+        var arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr : [];
+      } catch (_) { return []; }
+    }
+    function saveQueue(q) {
+      try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q || [])); } catch (_) {}
+    }
+    function enqueueRequest(data) {
+      try {
+        var q = loadQueue();
+        q.push({ data: data, url: API_URL, ts: Date.now(), retries: 0, next: Date.now() });
+        saveQueue(q);
+        setStatus('Sem ligação. Guardado para envio automático.', 'orange');
+        setTimeout(flushQueue, 1000);
+      } catch (_) {}
+    }
+    function sendQueueItem(item, cb) {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', item.url, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) {
+            var ok = xhr.status >= 200 && xhr.status < 300;
+            if (ok) return cb(true);
+            if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) return cb(false, true);
+            return cb(false, false);
+          }
+        };
+        xhr.onerror = function () { cb(false, true); };
+        xhr.send('data=' + encodeURIComponent(JSON.stringify(item.data)));
+      } catch (_) { cb(false, true); }
+    }
+    function flushQueue() {
+      if (queueSending) return;
+      var q = loadQueue();
+      var now = Date.now();
+      var kept = [];
+      for (var i = 0; i < q.length; i++) {
+        var it = q[i];
+        if (now - (it.ts || 0) <= MAX_QUEUE_AGE_MS) kept.push(it);
+      }
+      if (kept.length !== q.length) saveQueue(kept);
+      q = kept;
+      var idx = -1;
+      for (var j = 0; j < q.length; j++) {
+        if ((q[j].next || 0) <= now) { idx = j; break; }
+      }
+      if (idx === -1) return;
+      var item = q.splice(idx, 1)[0];
+      saveQueue(q);
+      queueSending = true;
+      sendQueueItem(item, function (success, shouldRetry) {
+        queueSending = false;
+        if (success) {
+          setTimeout(flushQueue, 100);
+          scheduleSync(1500);
+        } else if (shouldRetry) {
+          item.retries = (item.retries || 0) + 1;
+          var backoff = Math.min(10 * 60 * 1000, 5000 * Math.pow(2, Math.max(0, item.retries - 1)));
+          item.next = Date.now() + backoff;
+          var q2 = loadQueue();
+          q2.push(item);
+          saveQueue(q2);
+        } else {
+          setStatus('Erro permanente ao enviar um pedido. Verifique dados.', 'red');
+          scheduleSync(1500);
+        }
+      });
+    }
+
+    setInterval(flushQueue, FLUSH_INTERVAL_MS);
+    window.addEventListener('online', function () { setTimeout(flushQueue, 500); scheduleSync(500); });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { setTimeout(flushQueue, 500); scheduleSync(500); } });
+    window.addEventListener('pageshow', function () { setTimeout(flushQueue, 500); scheduleSync(500); });
+
     function clearSelections() {
       for (var key in uiMap) {
-        if (uiMap.hasOwnProperty(key)) uiMap[key].card.classList.remove('selected');
+        if (uiMap.hasOwnProperty(key)) {
+          uiMap[key].card.classList.remove('selected');
+        }
+      }
+    }
+
+    function updateCardState(name) {
+      var ui = uiMap[name];
+      if (!ui) return;
+      var ofValue = activeSessions[name];
+      if (ofValue) {
+        ui.card.classList.add('active');
+        ui.ofDisplay.textContent = ofValue;
+      } else {
+        ui.card.classList.remove('active');
+        ui.ofDisplay.textContent = '+';
       }
     }
 
@@ -80,7 +215,7 @@
 
       registerBtn.onclick = function (evt) {
         evt.stopPropagation();
-        openRegisterModal(name);
+        prepareRegister(name);
       };
 
       uiMap[name] = {
@@ -88,6 +223,8 @@
         ofDisplay: ofDisplay,
         registerBtn: registerBtn
       };
+
+      updateCardState(name);
     }
 
     function beginShift(name) {
@@ -119,15 +256,14 @@
         var row = document.createElement('div');
         row.className = 'key-row';
         for (var j = 0; j < rows[i].length; j++) {
-          var key = rows[i][j];
-          var btn = document.createElement('button');
-          btn.className = 'key';
-          if (key === 'OK') btn.className += ' wide';
-          btn.textContent = key;
-          btn.onclick = (function (value) {
-            return function () { handleKeyPress(value); };
-          })(key);
-          row.appendChild(btn);
+          (function (value) {
+            var btn = document.createElement('button');
+            btn.className = 'key';
+            if (value === 'OK') btn.className += ' wide';
+            btn.textContent = value;
+            btn.onclick = function () { handleKeyPress(value); };
+            row.appendChild(btn);
+          })(rows[i][j]);
         }
         keypad.appendChild(row);
       }
@@ -135,9 +271,7 @@
       var cancelBtn = document.createElement('button');
       cancelBtn.id = 'cancel-btn';
       cancelBtn.textContent = 'Cancelar';
-      cancelBtn.onclick = function () {
-        closeKeypad();
-      };
+      cancelBtn.onclick = function () { closeKeypad(); };
       keypad.appendChild(cancelBtn);
 
       keypad.style.display = 'block';
@@ -151,41 +285,145 @@
         currentOF = currentOF.slice(0, -1);
       } else if (key === 'OK') {
         if (currentOF) {
-          startShift(activeEmployee, currentOF);
+          submitStart(activeEmployee, currentOF);
         }
       } else {
-        if (currentOF.length < 6) {
-          currentOF += key;
-        }
+        if (currentOF.length < 6) currentOF += key;
       }
 
       display.textContent = currentOF;
     }
 
-    function startShift(name, ofValue) {
+    function submitStart(name, ofValue) {
       if (!name || !ofValue) return;
       closeKeypad();
 
-      activeSessions[name] = { of: ofValue };
-      var ui = uiMap[name];
-      if (ui) {
-        ui.card.classList.add('active');
-        ui.ofDisplay.textContent = ofValue;
-      }
+      var now = new Date();
+      var payload = {
+        acao: 'start',
+        funcionario: name,
+        of: ofValue,
+        hora: formatHHMM(now)
+      };
+
+      activeSessions[name] = String(ofValue);
+      persistActiveSessions();
+      updateCardState(name);
       setStatus('Turno iniciado para ' + name + ' na OF ' + ofValue + '.', '#026042');
+
+      sendAction(payload, {
+        successMessage: 'Início registado para ' + name + '.',
+        onError: function () {
+          setStatus('Falha ao registar início para ' + name + '.', 'red');
+        }
+      });
     }
 
     function endShift(name) {
       if (!activeSessions[name]) return;
       if (!window.confirm('Terminar turno de ' + name + '?')) return;
 
+      var now = new Date();
+      var payload = {
+        acao: 'end',
+        funcionario: name,
+        of: activeSessions[name],
+        hora: formatHHMM(now)
+      };
+
       delete activeSessions[name];
-      var ui = uiMap[name];
-      if (ui) {
-        ui.card.classList.remove('active');
-        ui.ofDisplay.textContent = '+';
-      }
+      persistActiveSessions();
+      updateCardState(name);
       setStatus('Turno terminado para ' + name + '.', '#026042');
+
+      sendAction(payload, {
+        successMessage: 'Fim registado para ' + name + '.',
+        onError: function () {
+          setStatus('Falha ao registar término para ' + name + '.', 'red');
+        }
+      });
+    }
+
+    function sendAction(data, opts) {
+      opts = opts || {};
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', API_URL, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) {
+            var ok = xhr.status >= 200 && xhr.status < 300;
+            if (ok) {
+              if (opts.successMessage) setStatus(opts.successMessage, '#026042');
+              if (typeof opts.onSuccess === 'function') opts.onSuccess();
+              scheduleSync();
+              return;
+            }
+            if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) {
+              enqueueRequest(data);
+              return;
+            }
+            var message = 'Erro: ' + (xhr.responseText || xhr.status);
+            setStatus(message, 'red');
+            if (typeof opts.onError === 'function') opts.onError();
+            scheduleSync();
+          }
+        };
+        xhr.onerror = function () {
+          enqueueRequest(data);
+        };
+        xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
+      } catch (_) {
+        enqueueRequest(data);
+      }
+    }
+
+    function prepareRegister(name) {
+      var ofValue = activeSessions[name];
+      if (!ofValue) {
+        setStatus('Inicie o turno antes de registar o acabamento.', 'orange');
+        return;
+      }
+
+      fetchAcabamentoOptions(ofValue, function (options) {
+        var unique = [];
+        var seen = {};
+        var source = Array.isArray(options) && options.length ? options : fallbackOptions;
+        for (var i = 0; i < source.length; i++) {
+          var opt = String(source[i] || '').trim();
+          if (!opt) continue;
+          if (!seen[opt]) {
+            seen[opt] = true;
+            unique.push(opt);
+          }
+        }
+        openRegisterModal(name, ofValue, unique);
+      });
+    }
+
+    function fetchAcabamentoOptions(ofValue, cb) {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', API_URL + '/options?of=' + encodeURIComponent(ofValue), true);
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                var resp = JSON.parse(xhr.responseText || '{}');
+                if (resp && resp.ok && Array.isArray(resp.options)) {
+                  cb(resp.options);
+                  return;
+                }
+              } catch (_) {}
+            }
+            cb([]);
+          }
+        };
+        xhr.onerror = function () { cb([]); };
+        xhr.send();
+      } catch (_) {
+        cb([]);
+      }
     }
 
     function closeActiveDropdown() {
@@ -205,12 +443,7 @@
       activeRegisterModal = null;
     }
 
-    function openRegisterModal(name) {
-      if (!activeSessions[name]) {
-        setStatus('Inicie o turno antes de registar o acabamento.', 'orange');
-        return;
-      }
-
+    function openRegisterModal(name, ofValue, optionsList) {
       closeRegisterModal();
 
       var overlay = document.createElement('div');
@@ -222,6 +455,13 @@
       var title = document.createElement('h2');
       title.textContent = 'Registar acabamento';
       modal.appendChild(title);
+
+      var subtitle = document.createElement('p');
+      subtitle.style.margin = '0 0 16px';
+      subtitle.style.textAlign = 'center';
+      subtitle.style.color = '#4d4d4d';
+      subtitle.textContent = name + ' · OF ' + ofValue;
+      modal.appendChild(subtitle);
 
       var selectionState = { cru: null, tp: null };
 
@@ -263,13 +503,13 @@
           dropdown = document.createElement('div');
           dropdown.className = 'dropdown';
 
-          if (!acabamentoOptions.length) {
+          if (!optionsList || !optionsList.length) {
             var empty = document.createElement('div');
             empty.className = 'dropdown-empty';
             empty.textContent = 'Sem opções disponíveis';
             dropdown.appendChild(empty);
           } else {
-            for (var idx = 0; idx < acabamentoOptions.length; idx++) {
+            for (var idx = 0; idx < optionsList.length; idx++) {
               (function (optionName) {
                 var optBtn = document.createElement('button');
                 optBtn.type = 'button';
@@ -279,11 +519,10 @@
                   button.textContent = optionName;
                   button.setAttribute('data-selected', 'true');
                   closeDropdown();
-                  openDropdown = null;
                   updateConfirmState();
                 };
                 dropdown.appendChild(optBtn);
-              })(acabamentoOptions[idx]);
+              })(optionsList[idx]);
             }
           }
 
@@ -316,7 +555,19 @@
 
       confirmBtn.onclick = function () {
         closeRegisterModal();
-        setStatus('Acabamento registado: Cru - ' + selectionState.cru + ', TP - ' + selectionState.tp + '.', '#026042');
+        var payload = {
+          acao: 'registerAcabamento',
+          funcionario: name,
+          of: ofValue,
+          cru: selectionState.cru,
+          tp: selectionState.tp
+        };
+        sendAction(payload, {
+          successMessage: 'Acabamento registado: Cru - ' + selectionState.cru + ', TP - ' + selectionState.tp + '.',
+          onError: function () {
+            setStatus('Falha ao registar acabamento.', 'red');
+          }
+        });
       };
 
       cancelBtn.onclick = function () {
@@ -331,9 +582,7 @@
       document.body.appendChild(overlay);
 
       overlay.onclick = function (evt) {
-        if (evt.target === overlay) {
-          closeRegisterModal();
-        }
+        if (evt.target === overlay) closeRegisterModal();
       };
 
       function onKeyDown(evt) {
@@ -350,8 +599,51 @@
       };
     }
 
+    function applySessionsFromServer(sessions) {
+      var updated = {};
+      for (var i = 0; i < sessions.length; i++) {
+        var item = sessions[i] || {};
+        if (!item.funcionario) continue;
+        updated[item.funcionario] = item.of ? String(item.of) : '';
+      }
+      activeSessions = updated;
+      persistActiveSessions();
+      for (var key in uiMap) {
+        if (uiMap.hasOwnProperty(key)) updateCardState(key);
+      }
+    }
+
+    function syncOpenSessions() {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', API_URL + '/open', true);
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                var resp = JSON.parse(xhr.responseText || '{}');
+                if (resp && resp.ok && Array.isArray(resp.sessions)) {
+                  applySessionsFromServer(resp.sessions);
+                }
+              } catch (_) {}
+            }
+          }
+        };
+        xhr.send();
+      } catch (_) {}
+    }
+
     for (var i = 0; i < names.length; i++) {
       createEmployeeRow(names[i]);
     }
+
+    setTimeout(syncOpenSessions, 1500);
+    setInterval(syncOpenSessions, 120000);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) syncOpenSessions();
+    });
+    window.addEventListener('pageshow', function () { syncOpenSessions(); });
+
+    setTimeout(flushQueue, 500);
   });
 })();

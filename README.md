@@ -39,12 +39,19 @@ Endpoints relevantes (backend):
 - `GET /notion/meta` – lê metadados da base de dados (título e tipos)
 - `POST /acabamento` – recebe ações do frontend (`start`, `end`, `cancel`, `finishIncomplete`)
 - `GET /acabamento/open` – lista turnos em aberto para conciliação do frontend (sincronização de UI)
+- `POST /estofagem` – regista tempo e acabamentos da secção Estofagem (`start`, `end`, `registerAcabamento`)
+- `GET /estofagem/open` – lista turnos em aberto da Estofagem
+- `GET /estofagem/options?of=123` – devolve colaboradores de Acabamento atualmente a trabalhar na mesma OF (para sugerir nomes no "Registar Acabamento")
 
 Semântica de ações (`POST /acabamento`):
 - `start`: cria página com “Colaborador”, “Ordem de Fabrico” e “Início do Turno” (data ISO do dia + hora dada).
 - `end`: fecha o turno mais recente em aberto do colaborador, definindo “Final do Turno” (aplica desconto automático de 10 min se o turno atravessar a pausa das 10h00–10h10).
 - `cancel`: fecha o turno em aberto e acrescenta “Notas do Sistema: Turno cancelado manualmente”.
 - `finishIncomplete`: ajusta “Início do Turno” para a frente em `minutosRestantes` (desconta esse tempo) e acrescenta nota com o tipo e quem iniciou.
+
+Semântica de ações (`POST /estofagem`):
+- `start` / `end`: igual ao Acabamento, mas escrevendo na base "Estofagem - Tempo" com o mesmo ajuste automático da pausa da manhã.
+- `registerAcabamento`: cria um registo na base "Estofagem - Registos Acab." com OF, quem registou, e os colaboradores selecionados para Cru/Tapa-Poros.
 ```
 
 ---
@@ -116,6 +123,7 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
    - Opções de **Cancelar** e **Terminar Incompleto** funcionam
    - Os dados são enviados via `POST` para o backend Node.js
    - A lista de turnos em aberto é retornada por `GET /acabamento/open` e a UI sincroniza sozinha após fechos registados noutros dispositivos
+   - Na secção **Estofagem**, validar o início/fim do turno e o botão **Registar Acabamento** (o modal deve mostrar os colaboradores de Acabamento ativos para a mesma OF)
    - Offline: com o backend parado/desligado, efetuar ações; ao reativar a rede, os pedidos pendentes são enviados automaticamente
 
 ---
@@ -131,9 +139,12 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 - Variáveis de ambiente (na Render, não no GitHub Pages):
   - `NOTION_TOKEN` – token da integração Notion (prefixo atual: `ntn_…`)
   - `ACABAMENTO_DB_ID` – ID da base de dados no Notion
+  - `ESTOFAGEM_TEMPO_DB_ID` – ID da base de dados "Estofagem - Tempo"
+  - `ESTOFAGEM_ACABAMENTOS_DB_ID` – ID da base de dados "Estofagem - Registos Acab."
   - `ALLOW_ORIGIN` – domínio(s) válidos apenas (sem caminho). Ex.: `https://cifcoelho.github.io` ou lista separada por vírgulas; `*` permite todos (usar com cuidado). O valor por omissão é `https://cifcoelho.github.io`.
   - `KEEPALIVE_URL` – URL a pingar (ex.: o próprio `/health` via Render)
   - `KEEPALIVE_ENABLED` – `true`/`false` (padrão `true`) para ativar o ping 07:30–17:30, dias úteis
+  - (opcional) `ESTOFAGEM_REGISTOS_TITLE_PROP`, `ESTOFAGEM_REGISTOS_DATA_PROP`, `ESTOFAGEM_REGISTOS_OF_PROP`, `ESTOFAGEM_REGISTOS_CRU_PROP`, `ESTOFAGEM_REGISTOS_TP_PROP` – nomes alternativos das propriedades da base "Estofagem - Registos Acab." caso tenham sido personalizados (por omissão utiliza `Registo Por:`, `Data`, `Ordem de Fabrico`, `Cru Por:`, `TP por:`)
   - `PORT` – opcional (Render ignora e usa a sua própria)
 - Depois do deploy, confirmar:
   - `GET https://registo-horas.onrender.com/health`
@@ -144,6 +155,10 @@ Config do frontend (Acabamento):
 - `frontend/JS/config/acabamento.config.js:1` → `webAppUrl: 'https://registo-horas.onrender.com/acabamento'`
 - A página sincroniza periodicamente com `GET <webAppUrl>/open` para atualizar o estado visual (botão ativo) após fechos registados noutros dispositivos
  - A secção **Acabamento** inclui uma fila offline mínima (até 30 min) que guarda pedidos quando não há ligação e os reenvia automaticamente com backoff exponencial
+
+Config do frontend (Estofagem):
+- `frontend/JS/config/estofagem.config.js` → ajustar `webAppUrl`, lista de colaboradores e (opcionalmente) nomes sugeridos por omissão para o modal de acabamento
+- A nova interface sincroniza turnos ativos com `GET /estofagem/open`, suporta fila offline (mesma filosofia do Acabamento) e, ao abrir o modal “Registar Acabamento”, consulta `GET /estofagem/options?of=…` para listar os colaboradores atualmente ativos no Acabamento para a mesma OF
 
 ### 2. Google Apps Script (legacy)
 
@@ -198,6 +213,19 @@ Config do frontend (Acabamento):
   - “Início do Turno” (date)
   - “Final do Turno” (date)
   - “Notas do Sistema” (rich_text)
+
+#### Estofagem – Tempo
+- Mesma estrutura do Acabamento: "Colaborador", "Ordem de Fabrico", "Início do Turno", "Final do Turno" e "Notas do Sistema".
+- O backend aplica automaticamente a subtração de 10 minutos sempre que o turno abrange a pausa das 10h00–10h10.
+
+#### Estofagem – Registos Acab.
+- Propriedades esperadas por omissão (personalizáveis via `ESTOFAGEM_REGISTOS_*`):
+  - “Registo Por:” (title)
+  - “Data” (date)
+  - “Ordem de Fabrico” (number)
+  - “Cru Por:” (rich_text)
+  - “TP por:” (rich_text)
+- Cada registo é criado quando o operador de Estofagem seleciona quem fez o **Cru** e o **Tapa-Poros** para uma OF.
 
 #### Ajuste automático da pausa da manhã
 - Sempre que um turno começa antes das 10h00 e termina depois das 10h10, o backend subtrai automaticamente 10 minutos ao “Final do Turno” quando processa a ação `end`.

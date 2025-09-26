@@ -9,15 +9,39 @@ const cron = require('node-cron');
 
 // ✅ Read ONLY from env
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
-const DATABASE_ID = process.env.ACABAMENTO_DB_ID;
+const ACABAMENTO_DB_ID = process.env.ACABAMENTO_DB_ID;
+const ESTOFAGEM_TEMPO_DB_ID = process.env.ESTOFAGEM_TEMPO_DB_ID;
+const ESTOFAGEM_ACABAMENTOS_DB_ID = process.env.ESTOFAGEM_ACABAMENTOS_DB_ID;
 const PORT = process.env.PORT || 8787;
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io';
 const KEEPALIVE_URL = process.env.KEEPALIVE_URL || '';
 const KEEPALIVE_ENABLED = (process.env.KEEPALIVE_ENABLED || 'true') !== 'false';
 
+const NOTION_DATABASES = {
+  acabamento: ACABAMENTO_DB_ID,
+  estofagemTempo: ESTOFAGEM_TEMPO_DB_ID,
+  estofagemAcabamentos: ESTOFAGEM_ACABAMENTOS_DB_ID
+};
+
+const ESTOFAGEM_REGISTOS_PROPS = {
+  title: process.env.ESTOFAGEM_REGISTOS_TITLE_PROP || 'Registo Por:',
+  data: process.env.ESTOFAGEM_REGISTOS_DATA_PROP || 'Data',
+  of: process.env.ESTOFAGEM_REGISTOS_OF_PROP || 'Ordem de Fabrico',
+  cru: process.env.ESTOFAGEM_REGISTOS_CRU_PROP || 'Cru Por:',
+  tp: process.env.ESTOFAGEM_REGISTOS_TP_PROP || 'TP por:'
+};
+
 // Guard rails: fail fast if secrets are missing
-if (!NOTION_TOKEN || !DATABASE_ID) {
-  console.error('❌ Missing NOTION_TOKEN or ACABAMENTO_DB_ID in environment.');
+if (!NOTION_TOKEN) {
+  console.error('❌ Missing NOTION_TOKEN in environment.');
+  process.exit(1);
+}
+if (!ACABAMENTO_DB_ID) {
+  console.error('❌ Missing ACABAMENTO_DB_ID in environment.');
+  process.exit(1);
+}
+if (!ESTOFAGEM_TEMPO_DB_ID || !ESTOFAGEM_ACABAMENTOS_DB_ID) {
+  console.error('❌ Missing ESTOFAGEM_TEMPO_DB_ID or ESTOFAGEM_ACABAMENTOS_DB_ID in environment.');
   process.exit(1);
 }
 
@@ -65,7 +89,9 @@ app.get('/health', (req, res) => {
 // Lightweight Notion DB metadata endpoint to help debugging
 app.get('/notion/meta', async (req, res) => {
   try {
-    const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}`, { headers });
+    const dbKey = String(req.query.db || 'acabamento');
+    const targetDb = NOTION_DATABASES[dbKey] || ACABAMENTO_DB_ID;
+    const resp = await fetch(`https://api.notion.com/v1/databases/${targetDb}`, { headers });
     if (!resp.ok) {
       const text = await resp.text();
       throw new Error(`Notion meta failed (${resp.status}): ${text}`);
@@ -102,13 +128,13 @@ app.post('/acabamento', async (req, res) => {
     console.log(`[REQ] /acabamento ->`, data);
 
     if (data.acao === 'start') {
-      await handleStart(data);
+      await createShiftStart(ACABAMENTO_DB_ID, data);
     } else if (data.acao === 'end') {
-      await handleEnd(data);
+      await closeShiftEntry(ACABAMENTO_DB_ID, data);
     } else if (data.acao === 'cancel') {
-      await handleCancel(data);
+      await cancelShiftEntry(ACABAMENTO_DB_ID, data);
     } else if (data.acao === 'finishIncomplete') {
-      await handleFinishIncomplete(data);
+      await finishIncompleteEntry(ACABAMENTO_DB_ID, data);
     } else {
       throw new Error('Ação inválida');
     }
@@ -119,36 +145,57 @@ app.post('/acabamento', async (req, res) => {
   }
 });
 
+app.post('/estofagem', async (req, res) => {
+  try {
+    const raw = req.body?.data;
+    if (!raw) throw new Error('Missing data');
+    const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+    if (!data.acao || !data.funcionario) throw new Error('Dados incompletos');
+
+    console.log(`[REQ] /estofagem ->`, data);
+
+    if (data.acao === 'start') {
+      await createShiftStart(ESTOFAGEM_TEMPO_DB_ID, data);
+    } else if (data.acao === 'end') {
+      await closeShiftEntry(ESTOFAGEM_TEMPO_DB_ID, data);
+    } else if (data.acao === 'registerAcabamento') {
+      await registerEstofagemAcabamento(data);
+    } else {
+      throw new Error('Ação inválida');
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ ok: false, error: String(err.message || err) });
+  }
+});
+
 // List open shifts to let the frontend reconcile its local UI state
 app.get('/acabamento/open', async (req, res) => {
   try {
-    let start_cursor = undefined;
-    const sessions = [];
-    do {
-      const query = {
-        filter: { property: 'Final do Turno', date: { is_empty: true } },
-        sorts: [{ property: 'Início do Turno', direction: 'ascending' }],
-        page_size: 100,
-        ...(start_cursor ? { start_cursor } : {})
-      };
-      const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
-        method: 'POST', headers, body: JSON.stringify(query)
-      });
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Notion query failed (${resp.status}): ${text}`);
-      }
-      const json = await resp.json();
-      for (const page of json.results || []) {
-        const name = (page.properties?.['Colaborador']?.title?.[0]?.plain_text || '').trim();
-        const of = page.properties?.['Ordem de Fabrico']?.number || null;
-        const start = page.properties?.['Início do Turno']?.date?.start || null;
-        if (name) sessions.push({ funcionario: name, of, start, id: page.id });
-      }
-      start_cursor = json.has_more ? json.next_cursor : undefined;
-    } while (start_cursor);
-
+    const sessions = await listOpenShifts(ACABAMENTO_DB_ID);
     res.json({ ok: true, sessions });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+app.get('/estofagem/open', async (req, res) => {
+  try {
+    const sessions = await listOpenShifts(ESTOFAGEM_TEMPO_DB_ID);
+    res.json({ ok: true, sessions });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+app.get('/estofagem/options', async (req, res) => {
+  try {
+    const ofNumber = Number(req.query.of || 0) || 0;
+    const options = await listAcabamentoOptions(ofNumber);
+    res.json({ ok: true, options });
   } catch (e) {
     res.status(400).json({ ok: false, error: String(e.message || e) });
   }
@@ -163,11 +210,85 @@ function hhmmToTodayISO(hhmm) {
   return dt.toISOString();
 }
 
-async function handleStart(data) {
+async function listOpenShifts(dbId) {
+  let start_cursor = undefined;
+  const sessions = [];
+  do {
+    const query = {
+      filter: { property: 'Final do Turno', date: { is_empty: true } },
+      sorts: [{ property: 'Início do Turno', direction: 'ascending' }],
+      page_size: 100,
+      ...(start_cursor ? { start_cursor } : {})
+    };
+
+    const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(query)
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Notion query failed (${resp.status}): ${text}`);
+    }
+
+    const json = await resp.json();
+    for (const page of json.results || []) {
+      const name = (page.properties?.['Colaborador']?.title?.[0]?.plain_text || '').trim();
+      const of = page.properties?.['Ordem de Fabrico']?.number || null;
+      const start = page.properties?.['Início do Turno']?.date?.start || null;
+      if (name) sessions.push({ funcionario: name, of, start, id: page.id });
+    }
+    start_cursor = json.has_more ? json.next_cursor : undefined;
+  } while (start_cursor);
+
+  return sessions;
+}
+
+async function listAcabamentoOptions(ofNumber) {
+  if (!ofNumber) return [];
+
+  const names = new Set();
+  let start_cursor = undefined;
+
+  do {
+    const query = {
+      filter: {
+        and: [
+          { property: 'Ordem de Fabrico', number: { equals: ofNumber } },
+          { property: 'Final do Turno', date: { is_empty: true } }
+        ]
+      },
+      sorts: [{ property: 'Início do Turno', direction: 'ascending' }],
+      page_size: 100,
+      ...(start_cursor ? { start_cursor } : {})
+    };
+
+    const resp = await fetch(`https://api.notion.com/v1/databases/${ACABAMENTO_DB_ID}/query`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(query)
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Notion query failed (${resp.status}): ${text}`);
+    }
+
+    const json = await resp.json();
+    for (const page of json.results || []) {
+      const name = (page.properties?.['Colaborador']?.title?.[0]?.plain_text || '').trim();
+      if (name) names.add(name);
+    }
+    start_cursor = json.has_more ? json.next_cursor : undefined;
+  } while (start_cursor);
+
+  return Array.from(names).sort((a, b) => a.localeCompare(b, 'pt-PT'));
+}
+
+async function createShiftStart(dbId, data) {
   const startISO = hhmmToTodayISO(data.hora);
 
   const payload = {
-    parent: { database_id: DATABASE_ID },
+    parent: { database_id: dbId },
     properties: {
       'Colaborador': { title: [{ text: { content: data.funcionario } }] },
       'Ordem de Fabrico': { number: Number(data.of) || null },
@@ -186,12 +307,11 @@ async function handleStart(data) {
   }
 }
 
-async function handleEnd(data) {
-  // Find most recent open record by this Colaborador (and optionally OF)
+async function findOpenShiftPage(dbId, funcionario) {
   const query = {
     filter: {
       and: [
-        { property: 'Colaborador', title: { equals: data.funcionario } },
+        { property: 'Colaborador', title: { equals: funcionario } },
         { property: 'Final do Turno', date: { is_empty: true } }
       ]
     },
@@ -199,7 +319,7 @@ async function handleEnd(data) {
     page_size: 1
   };
 
-  const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
+  const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
     method: 'POST',
     headers,
     body: JSON.stringify(query)
@@ -211,52 +331,63 @@ async function handleEnd(data) {
   const json = await resp.json();
   if (!json.results || !json.results.length) throw new Error('Nenhum turno aberto encontrado');
 
-  const page = json.results[0];
+  return json.results[0];
+}
+
+function combineNotes(existingRichText, message) {
+  if (!message) return null;
+  const existingNotes = (existingRichText || [])
+    .map((r) => r.plain_text || (r.text && r.text.content) || '')
+    .join(' ')
+    .trim();
+  return existingNotes ? `${existingNotes} | ${message}` : message;
+}
+
+function computeBreakAdjustment(startDate, requestedEndDate) {
+  if (!startDate) {
+    return { endDate: requestedEndDate, note: null };
+  }
+
+  const breakStart = new Date(startDate);
+  breakStart.setHours(10, 0, 0, 0);
+  const breakEnd = new Date(startDate);
+  breakEnd.setHours(10, 10, 0, 0);
+
+  const coversBreak = startDate <= breakStart && requestedEndDate >= breakEnd;
+
+  if (coversBreak) {
+    const adjusted = new Date(requestedEndDate.getTime() - 10 * 60_000);
+    if (adjusted > startDate) {
+      return { endDate: adjusted, note: 'Ajuste automático: pausa manhã (−10 min)' };
+    }
+  }
+
+  return { endDate: requestedEndDate, note: null };
+}
+
+async function closeShiftEntry(dbId, data) {
+  const page = await findOpenShiftPage(dbId, data.funcionario);
   const requestedEndISO = hhmmToTodayISO(data.hora);
   const requestedEndDate = new Date(requestedEndISO);
 
   const startProp = page.properties?.['Início do Turno']?.date?.start;
   const startDate = startProp ? new Date(startProp) : null;
 
-  let appliedEndDate = requestedEndDate;
-  let noteToAppend = null;
-
-  if (startDate) {
-    const breakStart = new Date(startDate);
-    breakStart.setHours(10, 0, 0, 0);
-    const breakEnd = new Date(startDate);
-    breakEnd.setHours(10, 10, 0, 0);
-
-    const coversBreak = startDate <= breakStart && requestedEndDate >= breakEnd;
-
-    if (coversBreak) {
-      const adjusted = new Date(requestedEndDate.getTime() - 10 * 60_000);
-      if (adjusted > startDate) {
-        appliedEndDate = adjusted;
-        noteToAppend = 'Ajuste automático: pausa manhã (−10 min)';
-      }
-    }
-  }
+  const adjustment = computeBreakAdjustment(startDate, requestedEndDate);
 
   const properties = {
-    'Final do Turno': { date: { start: appliedEndDate.toISOString() } }
+    'Final do Turno': { date: { start: adjustment.endDate.toISOString() } }
   };
 
-  if (noteToAppend) {
-    const existingNotes = (page.properties?.['Notas do Sistema']?.rich_text || [])
-      .map((r) => r.plain_text || (r.text && r.text.content) || '')
-      .join(' ')
-      .trim();
-    const combinedNotes = existingNotes ? `${existingNotes} | ${noteToAppend}` : noteToAppend;
+  if (adjustment.note) {
+    const combinedNotes = combineNotes(page.properties?.['Notas do Sistema']?.rich_text, adjustment.note);
     properties['Notas do Sistema'] = { rich_text: [{ text: { content: combinedNotes } }] };
   }
-
-  const payload = { properties };
 
   const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
     headers,
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ properties })
   });
   if (!resp2.ok) {
     const text = await resp2.text();
@@ -264,33 +395,10 @@ async function handleEnd(data) {
   }
 }
 
-async function handleCancel(data) {
+async function cancelShiftEntry(dbId, data) {
   const endISO = hhmmToTodayISO(data.hora);
+  const page = await findOpenShiftPage(dbId, data.funcionario);
 
-  const query = {
-    filter: {
-      and: [
-        { property: 'Colaborador', title: { equals: data.funcionario } },
-        { property: 'Final do Turno', date: { is_empty: true } }
-      ]
-    },
-    sorts: [{ property: 'Início do Turno', direction: 'descending' }],
-    page_size: 1
-  };
-
-  const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(query)
-  });
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Notion query failed (${resp.status}): ${text}`);
-  }
-  const json = await resp.json();
-  if (!json.results || !json.results.length) return;
-
-  const page = json.results[0];
   const payload = {
     properties: {
       'Final do Turno': { date: { start: endISO } },
@@ -311,7 +419,7 @@ async function handleCancel(data) {
   }
 }
 
-async function handleFinishIncomplete(data) {
+async function finishIncompleteEntry(dbId, data) {
   if (!data.tipo || !data.iniciou || typeof data.minutosRestantes === 'undefined') {
     throw new Error('Dados incompletos');
   }
@@ -319,47 +427,17 @@ async function handleFinishIncomplete(data) {
     throw new Error('Escolha outro colaborador');
   }
 
-  // Find the most recent open record for this collaborator
-  const query = {
-    filter: {
-      and: [
-        { property: 'Colaborador', title: { equals: data.funcionario } },
-        { property: 'Final do Turno', date: { is_empty: true } }
-      ]
-    },
-    sorts: [{ property: 'Início do Turno', direction: 'descending' }],
-    page_size: 1
-  };
+  const page = await findOpenShiftPage(dbId, data.funcionario);
 
-  const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(query)
-  });
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Notion query failed (${resp.status}): ${text}`);
-  }
-  const json = await resp.json();
-  if (!json.results || !json.results.length) throw new Error('Nenhum turno aberto encontrado');
-
-  const page = json.results[0];
-
-  // Get current start time, adjust forward by minutosRestantes (subtract from shift)
   const startProp = page.properties?.['Início do Turno']?.date?.start;
   if (!startProp) throw new Error('Início do Turno não encontrado');
   const startDate = new Date(startProp);
   const minutes = Math.max(0, Number(data.minutosRestantes) || 0);
   const adjustedStartISO = new Date(startDate.getTime() + minutes * 60_000).toISOString();
 
-  // Combine notes
   const tipo = String(data.tipo).trim();
   const newNote = `Terminou ${tipo} iniciado por ${data.iniciou} durante ${minutes} min`;
-  const existingNotes = (page.properties?.['Notas do Sistema']?.rich_text || [])
-    .map((r) => r.plain_text || (r.text && r.text.content) || '')
-    .join(' ')
-    .trim();
-  const combinedNotes = existingNotes ? `${existingNotes} | ${newNote}` : newNote;
+  const combinedNotes = combineNotes(page.properties?.['Notas do Sistema']?.rich_text, newNote);
 
   const payload = {
     properties: {
@@ -376,6 +454,38 @@ async function handleFinishIncomplete(data) {
   if (!resp2.ok) {
     const text = await resp2.text();
     throw new Error(`Notion update failed (${resp2.status}): ${text}`);
+  }
+}
+
+async function registerEstofagemAcabamento(data) {
+  if (!data.of || !data.cru || !data.tp || !data.funcionario) {
+    throw new Error('Dados incompletos');
+  }
+
+  const today = new Date();
+  const dateOnly = today.toISOString().split('T')[0];
+
+  const properties = {
+    [ESTOFAGEM_REGISTOS_PROPS.title]: { title: [{ text: { content: data.funcionario } }] },
+    [ESTOFAGEM_REGISTOS_PROPS.data]: { date: { start: dateOnly } },
+    [ESTOFAGEM_REGISTOS_PROPS.of]: { number: Number(data.of) || null },
+    [ESTOFAGEM_REGISTOS_PROPS.cru]: { rich_text: [{ text: { content: String(data.cru) } }] },
+    [ESTOFAGEM_REGISTOS_PROPS.tp]: { rich_text: [{ text: { content: String(data.tp) } }] }
+  };
+
+  const payload = {
+    parent: { database_id: ESTOFAGEM_ACABAMENTOS_DB_ID },
+    properties
+  };
+
+  const resp = await fetch('https://api.notion.com/v1/pages', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload)
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Notion create failed (${resp.status}): ${text}`);
   }
 }
 
