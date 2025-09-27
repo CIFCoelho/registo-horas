@@ -191,6 +191,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function sendPayload(data, url, opts) {
     opts = opts || {};
     var settled = false;
+    var accepted = opts.acceptStatuses || [];
     function finish(success, queued) {
       if (settled) return;
       settled = true;
@@ -209,6 +210,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (xhr.readyState === 4) {
           var ok = xhr.status >= 200 && xhr.status < 300;
           if (!ok) {
+            if (accepted.indexOf(xhr.status) !== -1) {
+              finish(true, false);
+              return;
+            }
             console.error('❌ Falha ao enviar', data, xhr.status, xhr.responseText);
             // Queue for retry on network/5xx/429
             if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) {
@@ -457,6 +462,7 @@ document.addEventListener('DOMContentLoaded', function () {
       };
       console.log('📤 Enviar fim da OF anterior:', endPayload);
       sendPayload(endPayload, config.webAppUrl, {
+        acceptStatuses: [400],
         onSettled: function (success, queued) {
           if (!success && !queued) {
             setStatus('Erro ao terminar turno atual. Tente novamente.', 'red');

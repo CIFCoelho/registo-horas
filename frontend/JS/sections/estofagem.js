@@ -359,6 +359,7 @@
         };
 
         sendAction(endPayload, {
+          acceptStatuses: [400],
           onSettled: function (success, queued) {
             if (!success && !queued) {
               setStatus('Erro ao terminar turno atual. Tente novamente.', 'red');
@@ -392,6 +393,7 @@
         setStatus('Turno terminado para ' + name + '.', '#026042');
 
         sendAction(payload, {
+          acceptStatuses: [400],
           successMessage: 'Fim registado para ' + name + '.',
           onError: function () {
             setStatus('Falha ao registar término para ' + name + '.', 'red');
@@ -409,6 +411,11 @@
         xhr.onreadystatechange = function () {
           if (xhr.readyState === 4) {
             var ok = xhr.status >= 200 && xhr.status < 300;
+            if (!ok && opts.acceptStatuses && opts.acceptStatuses.indexOf(xhr.status) !== -1) {
+              if (typeof opts.onSettled === 'function') opts.onSettled(true, false);
+              scheduleSync();
+              return;
+            }
             if (ok) {
               if (opts.successMessage) setStatus(opts.successMessage, '#026042');
               if (typeof opts.onSuccess === 'function') opts.onSuccess();
