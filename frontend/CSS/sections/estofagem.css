@@ -134,9 +134,11 @@ body.estofagem-page .employee.active .of-display {
 
 .estofagem-modal label {
   display: block;
-  font-weight: 600;
-  margin-bottom: 6px;
+  font-weight: 700;
+  margin-bottom: 8px;
   color: #013c5a;
+  font-size: 18px;
+  text-transform: uppercase;
 }
 
 
@@ -145,10 +147,10 @@ body.estofagem-page .employee.active .of-display {
   background: #eef8ff;
   border: 2px solid #1c8ac0;
   color: #1c8ac0;
-  border-radius: 16px;
-  padding: 16px;
-  font-size: 20px;
-  font-weight: 600;
+  border-radius: 20px;
+  padding: 22px 20px;
+  font-size: 22px;
+  font-weight: 700;
   text-align: left;
 }
 
@@ -159,26 +161,28 @@ body.estofagem-page .employee.active .of-display {
 
 
 .estofagem-modal .dropdown {
-  margin-top: 12px;
-  padding: 8px 6px 10px;
+  margin-top: 14px;
+  padding: 10px 8px 12px;
   background: #ffffff;
   border: none;
-  border-radius: 18px;
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.22);
+  border-radius: 22px;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.22);
 }
 
 .estofagem-modal .dropdown button {
   width: 100%;
   display: block;
-  padding: 16px 20px;
-  margin: 6px 4px;
+  padding: 22px 24px;
+  margin: 8px 6px;
   background: #ffffff;
   border: 2px solid rgba(28, 138, 192, 0.35);
-  border-radius: 14px;
+  border-radius: 20px;
   text-align: left;
-  font-size: 19px;
+  font-size: 22px;
+  font-weight: 700;
+  text-transform: uppercase;
   color: #013c5a;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 }
 
 .estofagem-modal .dropdown button:hover {
@@ -186,9 +190,9 @@ body.estofagem-page .employee.active .of-display {
 }
 
 .estofagem-modal .dropdown-empty {
-  padding: 18px 20px;
+  padding: 22px 24px;
   color: #6d6d6d;
-  font-size: 18px;
+  font-size: 20px;
   text-align: center;
 }
 
@@ -260,10 +264,11 @@ body.estofagem-page .employee.active .of-display {
     padding: 32px;
   }
   .estofagem-modal .selector-btn {
-    font-size: 22px;
+    font-size: 26px;
+    padding: 26px 24px;
   }
   .estofagem-modal .dropdown button {
-    font-size: 20px;
-    padding: 18px 22px;
+    font-size: 24px;
+    padding: 26px 28px;
   }
 }
