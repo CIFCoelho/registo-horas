@@ -195,7 +195,7 @@
       var registerBtn = document.createElement('button');
       registerBtn.className = 'register-btn';
       registerBtn.type = 'button';
-      registerBtn.textContent = 'REGISTAR ACABAMENTO';
+      registerBtn.textContent = 'REGISTAR ACAB.';
 
       var ofDisplay = document.createElement('span');
       ofDisplay.className = 'of-display';

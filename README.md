@@ -41,7 +41,7 @@ Endpoints relevantes (backend):
 - `GET /acabamento/open` – lista turnos em aberto para conciliação do frontend (sincronização de UI)
 - `POST /estofagem` – regista tempo e acabamentos da secção Estofagem (`start`, `end`, `registerAcabamento`)
 - `GET /estofagem/open` – lista turnos em aberto da Estofagem
-- `GET /estofagem/options?of=123` – devolve colaboradores de Acabamento atualmente a trabalhar na mesma OF (para sugerir nomes no "Registar Acabamento")
+- `GET /estofagem/options?of=123` – devolve colaboradores de Acabamento atualmente a trabalhar na mesma OF (para sugerir nomes no "Registar Acab.")
 
 Semântica de ações (`POST /acabamento`):
 - `start`: cria página com “Colaborador”, “Ordem de Fabrico” e “Início do Turno” (data ISO do dia + hora dada).
@@ -120,10 +120,11 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
 5. Confirmar que:
    - O clique no funcionário ativa o turno
    - O segundo clique regista o fim
+   - Com um turno ativo, tocar no círculo da OF permite mudar de ordem: o turno atual fecha e um novo é aberto com a nova OF
    - Opções de **Cancelar** e **Terminar Incompleto** funcionam
    - Os dados são enviados via `POST` para o backend Node.js
    - A lista de turnos em aberto é retornada por `GET /acabamento/open` e a UI sincroniza sozinha após fechos registados noutros dispositivos
-   - Na secção **Estofagem**, validar o início/fim do turno e o botão **Registar Acabamento** (o modal deve mostrar os colaboradores de Acabamento ativos para a mesma OF)
+   - Na secção **Estofagem**, validar o início/fim do turno e o botão **Registar Acab.** (o modal deve mostrar os colaboradores de Acabamento ativos para a mesma OF)
    - Offline: com o backend parado/desligado, efetuar ações; ao reativar a rede, os pedidos pendentes são enviados automaticamente
 
 ---
@@ -158,7 +159,8 @@ Config do frontend (Acabamento):
 
 Config do frontend (Estofagem):
 - `frontend/JS/config/estofagem.config.js` → ajustar `webAppUrl`, lista de colaboradores e (opcionalmente) nomes sugeridos por omissão para o modal de acabamento
-- A nova interface sincroniza turnos ativos com `GET /estofagem/open`, suporta fila offline (mesma filosofia do Acabamento) e, ao abrir o modal “Registar Acabamento”, consulta `GET /estofagem/options?of=…` para listar os colaboradores atualmente ativos no Acabamento para a mesma OF
+- A nova interface sincroniza turnos ativos com `GET /estofagem/open`, suporta fila offline (mesma filosofia do Acabamento) e, ao abrir o modal “Registar Acab.”, consulta `GET /estofagem/options?of=…` para listar os colaboradores atualmente ativos no Acabamento para a mesma OF
+- Tal como no Acabamento, tocar no círculo da OF quando há turno ativo fecha a OF corrente e abre uma nova com o número introduzido
 
 ### 2. Google Apps Script (legacy)
 
