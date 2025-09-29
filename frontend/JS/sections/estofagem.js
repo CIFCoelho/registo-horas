@@ -459,7 +459,10 @@
       fetchAcabamentoOptions(ofValue, function (options) {
         var unique = [];
         var seen = {};
-        var source = Array.isArray(options) && options.length ? options : fallbackOptions;
+        var source = Array.isArray(fallbackOptions) ? fallbackOptions.slice() : [];
+        if (Array.isArray(options) && options.length) {
+          source = source.concat(options);
+        }
         for (var i = 0; i < source.length; i++) {
           var opt = String(source[i] || '').trim();
           if (!opt) continue;
