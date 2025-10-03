@@ -235,16 +235,18 @@
         return false;
       }
 
-      function finish(success, queued) {
+      function finish(success, queued, detail) {
         if (settled) return;
         settled = true;
         releaseLock(lockKey);
         if (success) {
-          if (typeof opts.onSuccess === 'function') opts.onSuccess();
+          if (typeof opts.onSuccess === 'function') opts.onSuccess(detail);
         } else {
-          if (typeof opts.onError === 'function') opts.onError({ queued: queued });
+          if (typeof opts.onError === 'function') {
+            opts.onError({ queued: queued, detail: detail || null });
+          }
         }
-        if (typeof opts.onSettled === 'function') opts.onSettled(success, queued);
+        if (typeof opts.onSettled === 'function') opts.onSettled(success, queued, detail || null);
       }
 
       try {
@@ -256,29 +258,29 @@
             var ok = xhr.status >= 200 && xhr.status < 300;
             if (!ok) {
               if (acceptedStatuses.indexOf(xhr.status) !== -1) {
-                finish(true, false);
+                finish(true, false, { status: xhr.status, body: xhr.responseText });
                 return;
               }
               if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) {
                 enqueueRequest(data, API_URL, opts.queueKey || null);
-                finish(false, true);
+                finish(false, true, { status: xhr.status, body: xhr.responseText });
               } else {
                 setStatus('Erro: ligação falhou (' + xhr.status + ')', 'red');
-                finish(false, false);
+                finish(false, false, { status: xhr.status, body: xhr.responseText });
               }
             } else {
-              finish(true, false);
+              finish(true, false, { status: xhr.status, body: xhr.responseText });
             }
           }
         };
         xhr.onerror = function () {
           enqueueRequest(data, API_URL, opts.queueKey || null);
-          finish(false, true);
+          finish(false, true, { status: 0, body: '' });
         };
         xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
       } catch (err) {
         enqueueRequest(data, API_URL, opts.queueKey || null);
-        finish(false, true);
+        finish(false, true, { status: 0, body: String(err && err.message ? err.message : err) });
       }
       return true;
     }
