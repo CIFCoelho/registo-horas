@@ -257,6 +257,7 @@ Config do frontend (Estofagem):
 
 ### Outras secções
 - O backend já expõe um fluxo genérico (`shift-basic.js`) para secções baseadas em turnos. Configure as variáveis de ambiente opcionais `COSTURA_DB_ID`, `PINTURA_DB_ID`, `PREPARACAO_MADEIRAS_DB_ID` e `MONTAGEM_DB_ID` para ativar as rotas `/costura`, `/pintura`, `/preparacao` e `/montagem`.
+- Para ajustar nomes de colunas na base de Pintura, utilize `PINTURA_ISOLANTE_PROP`, `PINTURA_TAPA_PROP`, `PINTURA_VERNIZ_PROP` e `PINTURA_AQUEC_PROP` (por omissão: "Isolante Aplicado (Nº)", "Tapa-Poros Aplicado Nº", "Verniz Aplicado (Nº)", "Aquecimento - Nº de Horas").
 
 ### Segurança e housekeeping
 - O ficheiro `server/.env` não deve ser versionado. Está ignorado em `.gitignore` e foi removido do repositório em favor das variáveis de ambiente na Render.

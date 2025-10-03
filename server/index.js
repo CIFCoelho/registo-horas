@@ -16,6 +16,10 @@ const COSTURA_DB_ID = process.env.COSTURA_DB_ID;
 const PINTURA_DB_ID = process.env.PINTURA_DB_ID;
 const PREPARACAO_MADEIRAS_DB_ID = process.env.PREPARACAO_MADEIRAS_DB_ID;
 const MONTAGEM_DB_ID = process.env.MONTAGEM_DB_ID;
+const PINTURA_ISOLANTE_PROP = process.env.PINTURA_ISOLANTE_PROP || 'Isolante Aplicado (Nº)';
+const PINTURA_TAPA_PROP = process.env.PINTURA_TAPA_PROP || 'Tapa-Poros Aplicado Nº';
+const PINTURA_VERNIZ_PROP = process.env.PINTURA_VERNIZ_PROP || 'Verniz Aplicado (Nº)';
+const PINTURA_AQUEC_PROP = process.env.PINTURA_AQUEC_PROP || 'Aquecimento - Nº de Horas';
 const PORT = process.env.PORT || 8787;
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io';
 const KEEPALIVE_URL = process.env.KEEPALIVE_URL || '';
@@ -37,6 +41,13 @@ const ESTOFAGEM_REGISTOS_PROPS = {
   of: process.env.ESTOFAGEM_REGISTOS_OF_PROP || 'Ordem de Fabrico',
   cru: process.env.ESTOFAGEM_REGISTOS_CRU_PROP || 'Cru Por:',
   tp: process.env.ESTOFAGEM_REGISTOS_TP_PROP || 'TP por:'
+};
+
+const PINTURA_PROP_ALIASES = {
+  isolante: [PINTURA_ISOLANTE_PROP, 'Isolante Aplicado Nº', 'Isolante Aplicado'],
+  tapaPoros: [PINTURA_TAPA_PROP, 'Tapa Poros Aplicado (Nº)', 'Tapa poros aplicado', 'Tapa-Poros Aplicado (Nº)'],
+  verniz: [PINTURA_VERNIZ_PROP, 'Verniz Aplicado Nº', 'Verniz'],
+  aquecimento: [PINTURA_AQUEC_PROP, 'Aquecimento Nº Horas', 'Aquecimento Horas', 'Aquecimento']
 };
 
 // Guard rails: fail fast if secrets are missing
@@ -492,12 +503,16 @@ async function registerPinturaQuantities(dbId, data) {
   const verniz = Number(data.verniz) || 0;
   const aquecimento = Number(data.aquecimento) || 0;
 
-  const properties = {
-    'Isolante Aplicado (Nº)': { number: isolante },
-    'Tapa-Poros Aplicado Nº': { number: tapaPoros },
-    'Verniz Aplicado (Nº)': { number: verniz },
-    'Aquecimento - Nº de Horas': { number: aquecimento }
-  };
+  const properties = {};
+  const propIsolante = resolvePinturaProperty(page, 'isolante');
+  const propTapa = resolvePinturaProperty(page, 'tapaPoros');
+  const propVerniz = resolvePinturaProperty(page, 'verniz');
+  const propAquec = resolvePinturaProperty(page, 'aquecimento');
+
+  properties[propIsolante] = { number: isolante };
+  properties[propTapa] = { number: tapaPoros };
+  properties[propVerniz] = { number: verniz };
+  properties[propAquec] = { number: aquecimento };
 
   const resp = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
@@ -508,6 +523,30 @@ async function registerPinturaQuantities(dbId, data) {
     const text = await resp.text();
     throw new Error(`Notion update failed (${resp.status}): ${text}`);
   }
+}
+
+function resolvePinturaProperty(page, key) {
+  const candidates = (PINTURA_PROP_ALIASES[key] || []).filter(Boolean);
+  if (!candidates.length) throw new Error('Configuração incompleta para propriedade Pintura: ' + key);
+  const props = page?.properties || {};
+  const lookup = {};
+  Object.keys(props).forEach((name) => {
+    lookup[normalizeKey(name)] = name;
+  });
+  for (const candidate of candidates) {
+    const actual = lookup[normalizeKey(candidate)];
+    if (actual) return actual;
+  }
+  throw new Error(
+    `Propriedade "${candidates[0]}" não encontrada na base Pintura. ` +
+    'Atualize os nomes nas variáveis PINTURA_*_PROP ou alinhe os títulos das propriedades.'
+  );
+}
+
+function normalizeKey(str) {
+  return String(str || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
 }
 
 async function finishIncompleteEntry(dbId, data) {

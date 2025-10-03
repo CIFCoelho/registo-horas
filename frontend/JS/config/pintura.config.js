@@ -184,9 +184,21 @@
           onError: function (info) {
             if (info && info.queued) {
               ctx.setStatus('Sem ligação. Registo guardado para envio automático.', 'orange');
-            } else {
-              ctx.setStatus('Erro ao registar quantidades.', 'red');
+              return;
             }
+            var detail = info && info.detail ? info.detail : null;
+            var message = 'Erro ao registar quantidades.';
+            if (detail && detail.body) {
+              try {
+                var parsed = JSON.parse(detail.body);
+                if (parsed && parsed.error) message = String(parsed.error);
+              } catch (_) {
+                if (detail.body.length && detail.body.length < 180) {
+                  message = detail.body;
+                }
+              }
+            }
+            ctx.setStatus(message, 'red');
           }
         });
 
@@ -205,24 +217,14 @@
     webAppUrl: 'https://registo-horas.onrender.com/pintura',
     activeSessionsKey: 'pinturaActiveSessions',
     queueKey: 'pinturaQueue',
-    names: ['Teresa', 'Inês', 'Pedro'],
+    names: ['Pedro', 'Teresa'],
     enableCancel: true,
 
     onRowCreated: function (ctx) {
       var button = document.createElement('button');
-      button.className = 'register-btn register-btn--pintura';
+      button.className = 'register-btn';
       button.type = 'button';
-
-      var label = document.createElement('span');
-      label.className = 'register-btn__label';
-      label.textContent = 'Registar';
-
-      var badge = document.createElement('span');
-      badge.className = 'register-btn__count';
-      badge.textContent = '0';
-
-      button.appendChild(label);
-      button.appendChild(badge);
+      button.textContent = 'REGISTAR';
 
       ctx.controls.insertBefore(button, ctx.ofDisplay);
 
@@ -238,8 +240,13 @@
       ctx.registerStateUpdater(function (info) {
         if (!info.card) return;
         var totals = getTotals(ctx.name);
-        badge.textContent = formatNumber(sumWorkUnits(totals));
-        button.style.display = info.isActive ? 'inline-flex' : 'none';
+        var sum = sumWorkUnits(totals);
+        var text = 'REGISTAR';
+        if (sum > 0) {
+          text += ' (' + formatNumber(sum) + ')';
+        }
+        button.textContent = text;
+        button.style.display = info.isActive ? 'inline-block' : 'none';
       });
     },
 
