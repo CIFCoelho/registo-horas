@@ -222,13 +222,14 @@ app.get('/estofagem/options', async (req, res) => {
 
 function registerBasicShiftSection(route, dbId, label, opts) {
   opts = opts || {};
-  if (!dbId) {
-    console.warn(`⚠️  Skipping ${route} (${label || 'sem nome'}) – DB ID not configured.`);
-    return;
+  const hasDb = !!dbId;
+  if (!hasDb) {
+    console.warn(`⚠️  Config missing for ${route} (${label || 'sem nome'}). Requests will return 503.`);
   }
 
   app.post(route, async (req, res) => {
     try {
+      if (!hasDb) throw new Error('Base de dados não configurada para esta secção.');
       const raw = req.body?.data;
       if (!raw) throw new Error('Missing data');
       const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
@@ -250,17 +251,20 @@ function registerBasicShiftSection(route, dbId, label, opts) {
 
       res.json({ ok: true });
     } catch (err) {
+      const status = hasDb ? 400 : 503;
       console.error(err);
-      res.status(400).json({ ok: false, error: String(err.message || err) });
+      res.status(status).json({ ok: false, error: String(err.message || err) });
     }
   });
 
   app.get(`${route}/open`, async (req, res) => {
     try {
+      if (!hasDb) throw new Error('Base de dados não configurada para esta secção.');
       const sessions = await listOpenShifts(dbId);
       res.json({ ok: true, sessions });
     } catch (e) {
-      res.status(400).json({ ok: false, error: String(e.message || e) });
+      const status = hasDb ? 400 : 503;
+      res.status(status).json({ ok: false, error: String(e.message || e) });
     }
   });
 
