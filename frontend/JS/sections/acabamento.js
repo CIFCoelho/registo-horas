@@ -19,9 +19,22 @@ document.addEventListener('DOMContentLoaded', function () {
     return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
   }
 
+  function sanitizePrefix(value, fallback) {
+    if (typeof value !== 'string' || !value.trim()) return fallback;
+    return value.trim().replace(/[^a-z0-9_-]/gi, '_');
+  }
+
+  var storagePrefix = sanitizePrefix(config.storagePrefix, 'acabamento');
+
   // --- Minimal offline queue ---
-  var QUEUE_KEY = 'acabamentoQueue';
+  var QUEUE_KEY = storagePrefix + 'Queue';
   var ACTIVE_SESSIONS_KEY = 'activeSessions';
+  if (!config.storagePrefix) {
+    // backward compatibility for original Acabamento implementation
+    ACTIVE_SESSIONS_KEY = 'activeSessions';
+  } else {
+    ACTIVE_SESSIONS_KEY = storagePrefix + 'ActiveSessions';
+  }
   var queueSending = false;
   var FLUSH_INTERVAL_MS = 20000; // try every 20s
   var MAX_QUEUE_AGE_MS = 30 * 60 * 1000; // 30 minutes
