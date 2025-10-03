@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var employeeButtons = {};
   var modalOverlay = null;
   var statusTimeoutId = null;
+  var requestLocks = {};
 
   // --- Time formatting helper (Safari 9 friendly) ---
   function formatHHMM(d) {
@@ -20,6 +21,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // --- Minimal offline queue ---
   var QUEUE_KEY = 'acabamentoQueue';
+  var ACTIVE_SESSIONS_KEY = 'activeSessions';
   var queueSending = false;
   var FLUSH_INTERVAL_MS = 20000; // try every 20s
   var MAX_QUEUE_AGE_MS = 30 * 60 * 1000; // 30 minutes
@@ -35,15 +37,32 @@ document.addEventListener('DOMContentLoaded', function () {
   function saveQueue(q) {
     try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q || [])); } catch (_) {}
   }
-  function enqueueRequest(data, url) {
+  function enqueueRequest(data, url, key) {
     try {
       var q = loadQueue();
-      q.push({ data: data, url: url, ts: Date.now(), retries: 0, next: Date.now() });
+      if (key) {
+        for (var i = 0; i < q.length; i++) {
+          if (q[i].key === key) {
+            // Refresh timestamps so the retry happens sooner after a manual attempt
+            q[i].ts = Date.now();
+            q[i].next = Date.now();
+            q[i].data = data;
+            q[i].url = url;
+            q[i].retries = 0;
+            saveQueue(q);
+            setStatus('Pedido já guardado. Aguarde ligação.', 'orange');
+            setTimeout(flushQueue, 1000);
+            return false;
+          }
+        }
+      }
+      q.push({ data: data, url: url, ts: Date.now(), retries: 0, next: Date.now(), key: key });
       saveQueue(q);
       setStatus('Sem ligação. Guardado para envio automático.', 'orange');
       // Nudge a quick flush attempt
       setTimeout(flushQueue, 1000);
-    } catch (_) {}
+      return true;
+    } catch (_) { return false; }
   }
   function sendQueueItem(item, cb) {
     try {
@@ -123,9 +142,39 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  if (localStorage.getItem('activeSessions')) {
-    activeSessions = JSON.parse(localStorage.getItem('activeSessions'));
+  function acquireLock(key) {
+    if (!key) return true;
+    if (requestLocks[key]) return false;
+    requestLocks[key] = true;
+    return true;
   }
+
+  function releaseLock(key) {
+    if (!key) return;
+    delete requestLocks[key];
+  }
+
+  function loadActiveSessions() {
+    try {
+      var raw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
+      if (!raw) return {};
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') {
+        localStorage.removeItem(ACTIVE_SESSIONS_KEY);
+        return {};
+      }
+      return parsed;
+    } catch (_) {
+      localStorage.removeItem(ACTIVE_SESSIONS_KEY);
+      return {};
+    }
+  }
+
+  function persistActiveSessions() {
+    try { localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(activeSessions || {})); } catch (_) {}
+  }
+
+  activeSessions = loadActiveSessions();
 
   config.names.forEach(function (name) {
     var row = document.createElement('div');
@@ -192,9 +241,19 @@ document.addEventListener('DOMContentLoaded', function () {
     opts = opts || {};
     var settled = false;
     var accepted = opts.acceptStatuses || [];
+    var lockKey = opts.lockKey || null;
+    if (lockKey && !acquireLock(lockKey)) {
+      if (typeof opts.onDuplicate === 'function') {
+        opts.onDuplicate();
+      } else {
+        setStatus('Pedido já está a ser processado. Aguarde.', 'orange');
+      }
+      return false;
+    }
     function finish(success, queued) {
       if (settled) return;
       settled = true;
+      releaseLock(lockKey);
       if (success) {
         if (typeof opts.onSuccess === 'function') opts.onSuccess();
       } else {
@@ -217,7 +276,7 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('❌ Falha ao enviar', data, xhr.status, xhr.responseText);
             // Queue for retry on network/5xx/429
             if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) {
-              enqueueRequest(data, url);
+              enqueueRequest(data, url, opts.queueKey || null);
               finish(false, true);
             } else {
               setStatus('Erro: ligação falhou (' + xhr.status + ')', 'red');
@@ -231,15 +290,16 @@ document.addEventListener('DOMContentLoaded', function () {
       };
       xhr.onerror = function () {
         console.error('❌ Erro de rede ao enviar', data);
-        enqueueRequest(data, url);
+        enqueueRequest(data, url, opts.queueKey || null);
         finish(false, true);
       };
       xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
     } catch (e) {
       console.error('❌ Exceção ao enviar', e);
-      enqueueRequest(data, url);
+      enqueueRequest(data, url, opts.queueKey || null);
       finish(false, true);
     }
+    return true;
   }
 
   // Periodically reconcile local UI with backend open shifts
@@ -268,7 +328,7 @@ document.addEventListener('DOMContentLoaded', function () {
         changed = true;
       }
     }
-    if (changed) localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
+    if (changed) persistActiveSessions();
 
     // Reflect in UI
     for (var i = 0; i < config.names.length; i++) {
@@ -431,7 +491,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function applyStartUI() {
       activeSessions[name] = newOF;
-      localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
+      persistActiveSessions();
       btn.classList.add('active');
       btn.querySelector('.of-display').textContent = newOF;
       actionButtons[name].style.display = 'inline-block';
@@ -448,7 +508,14 @@ document.addEventListener('DOMContentLoaded', function () {
         hora: startHora
       };
       console.log('📤 Enviar início da OF:', startPayload);
-      sendPayload(startPayload, config.webAppUrl);
+      var accepted = sendPayload(startPayload, config.webAppUrl, {
+        lockKey: 'start:' + name,
+        queueKey: 'start:' + name + ':' + String(newOF || ''),
+        onDuplicate: function () {
+          setStatus('Pedido de início já em processamento para ' + name + '.', 'orange');
+        }
+      });
+      if (!accepted) return;
       applyStartUI();
     }
 
@@ -461,8 +528,13 @@ document.addEventListener('DOMContentLoaded', function () {
         hora: endHora
       };
       console.log('📤 Enviar fim da OF anterior:', endPayload);
-      sendPayload(endPayload, config.webAppUrl, {
+      var endAccepted = sendPayload(endPayload, config.webAppUrl, {
         acceptStatuses: [400],
+        lockKey: 'end:' + name,
+        queueKey: 'end:' + name + ':' + String(previousOF || ''),
+        onDuplicate: function () {
+          setStatus('Pedido de fecho já em processamento para ' + name + '.', 'orange');
+        },
         onSettled: function (success, queued) {
           if (!success && !queued) {
             setStatus('Erro ao terminar turno atual. Tente novamente.', 'red');
@@ -472,6 +544,7 @@ document.addEventListener('DOMContentLoaded', function () {
           sendStartPayload();
         }
       });
+      if (!endAccepted) return;
     } else {
       sendStartPayload();
     }
@@ -495,17 +568,25 @@ document.addEventListener('DOMContentLoaded', function () {
         var now = new Date();
         var hora = formatHHMM(now);
 
+        var currentOfValue = activeSessions[name];
         var payload = {
           funcionario: name,
-          of: activeSessions[name],
+          of: currentOfValue,
           acao: 'end',
           hora: hora
         };
 
-        sendPayload(payload, config.webAppUrl);
+        var accepted = sendPayload(payload, config.webAppUrl, {
+          lockKey: 'end:' + name,
+          queueKey: 'end:' + name + ':' + String(currentOfValue || ''),
+          onDuplicate: function () {
+            setStatus('Pedido de fecho já em processamento para ' + name + '.', 'orange');
+          }
+        });
+        if (!accepted) return;
 
         delete activeSessions[name];
-        localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
+        persistActiveSessions();
         btn.classList.remove('active');
         btn.querySelector('.of-display').textContent = '+';
         actionButtons[name].style.display = 'none';
@@ -637,7 +718,14 @@ document.addEventListener('DOMContentLoaded', function () {
       minutosRestantes: Number(tempo),
       hora: hora
     };
-    sendPayload(payload, config.webAppUrl);
+    var accepted = sendPayload(payload, config.webAppUrl, {
+      lockKey: 'finishIncomplete:' + name,
+      queueKey: 'finishIncomplete:' + name + ':' + tipo + ':' + iniciou + ':' + String(tempo),
+      onDuplicate: function () {
+        setStatus('Pedido já em processamento para ' + name + '.', 'orange');
+      }
+    });
+    if (!accepted) return;
     setStatus('Complemento registado', 'green');
   }
 
@@ -648,15 +736,23 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     var now = new Date();
     var hora = formatHHMM(now);
+    var currentOfValue = activeSessions[name];
     var payload = {
       funcionario: name,
-      of: activeSessions[name],
+      of: currentOfValue,
       acao: 'cancel',
       hora: hora
     };
-    sendPayload(payload, config.webAppUrl);
+    var accepted = sendPayload(payload, config.webAppUrl, {
+      lockKey: 'cancel:' + name,
+      queueKey: 'cancel:' + name + ':' + String(currentOfValue || ''),
+      onDuplicate: function () {
+        setStatus('Pedido de cancelamento já em processamento para ' + name + '.', 'orange');
+      }
+    });
+    if (!accepted) return;
     delete activeSessions[name];
-    localStorage.setItem('activeSessions', JSON.stringify(activeSessions));
+    persistActiveSessions();
     btn.classList.remove('active');
     btn.querySelector('.of-display').textContent = '+';
     actionButtons[name].style.display = 'none';

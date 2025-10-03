@@ -12,6 +12,10 @@ const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const ACABAMENTO_DB_ID = process.env.ACABAMENTO_DB_ID;
 const ESTOFAGEM_TEMPO_DB_ID = process.env.ESTOFAGEM_TEMPO_DB_ID;
 const ESTOFAGEM_ACABAMENTOS_DB_ID = process.env.ESTOFAGEM_ACABAMENTOS_DB_ID;
+const COSTURA_DB_ID = process.env.COSTURA_DB_ID;
+const PINTURA_DB_ID = process.env.PINTURA_DB_ID;
+const PREPARACAO_MADEIRAS_DB_ID = process.env.PREPARACAO_MADEIRAS_DB_ID;
+const MONTAGEM_DB_ID = process.env.MONTAGEM_DB_ID;
 const PORT = process.env.PORT || 8787;
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io';
 const KEEPALIVE_URL = process.env.KEEPALIVE_URL || '';
@@ -20,7 +24,11 @@ const KEEPALIVE_ENABLED = (process.env.KEEPALIVE_ENABLED || 'true') !== 'false';
 const NOTION_DATABASES = {
   acabamento: ACABAMENTO_DB_ID,
   estofagemTempo: ESTOFAGEM_TEMPO_DB_ID,
-  estofagemAcabamentos: ESTOFAGEM_ACABAMENTOS_DB_ID
+  estofagemAcabamentos: ESTOFAGEM_ACABAMENTOS_DB_ID,
+  costura: COSTURA_DB_ID,
+  pintura: PINTURA_DB_ID,
+  preparacao: PREPARACAO_MADEIRAS_DB_ID,
+  montagem: MONTAGEM_DB_ID
 };
 
 const ESTOFAGEM_REGISTOS_PROPS = {
@@ -200,6 +208,62 @@ app.get('/estofagem/options', async (req, res) => {
     res.status(400).json({ ok: false, error: String(e.message || e) });
   }
 });
+
+function registerBasicShiftSection(route, dbId, label, opts) {
+  opts = opts || {};
+  if (!dbId) {
+    console.warn(`⚠️  Skipping ${route} (${label || 'sem nome'}) – DB ID not configured.`);
+    return;
+  }
+
+  app.post(route, async (req, res) => {
+    try {
+      const raw = req.body?.data;
+      if (!raw) throw new Error('Missing data');
+      const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!data.acao || !data.funcionario) throw new Error('Dados incompletos');
+
+      console.log(`[REQ] ${route} ->`, data);
+
+      if (data.acao === 'start') {
+        await createShiftStart(dbId, data);
+      } else if (data.acao === 'end') {
+        await closeShiftEntry(dbId, data);
+      } else if (data.acao === 'cancel') {
+        await cancelShiftEntry(dbId, data);
+      } else if (data.acao === 'register' && typeof opts.onRegister === 'function') {
+        await opts.onRegister(data);
+      } else {
+        throw new Error('Ação inválida');
+      }
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error(err);
+      res.status(400).json({ ok: false, error: String(err.message || err) });
+    }
+  });
+
+  app.get(`${route}/open`, async (req, res) => {
+    try {
+      const sessions = await listOpenShifts(dbId);
+      res.json({ ok: true, sessions });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  console.log(`📌 Basic shift section ready: ${label || route} (${route})`);
+}
+
+registerBasicShiftSection('/costura', COSTURA_DB_ID, 'Costura');
+registerBasicShiftSection('/pintura', PINTURA_DB_ID, 'Pintura', {
+  onRegister: async (data) => {
+    await registerPinturaQuantities(PINTURA_DB_ID, data);
+  }
+});
+registerBasicShiftSection('/preparacao', PREPARACAO_MADEIRAS_DB_ID, 'Preparação de Madeiras');
+registerBasicShiftSection('/montagem', MONTAGEM_DB_ID, 'Montagem');
 
 // --- helpers ---
 
@@ -416,6 +480,33 @@ async function cancelShiftEntry(dbId, data) {
   if (!resp2.ok) {
     const text = await resp2.text();
     throw new Error(`Notion update failed (${resp2.status}): ${text}`);
+  }
+}
+
+async function registerPinturaQuantities(dbId, data) {
+  if (!dbId) throw new Error('DB não configurada');
+  const page = await findOpenShiftPage(dbId, data.funcionario);
+
+  const isolante = Number(data.isolante) || 0;
+  const tapaPoros = Number(data.tapaPoros) || 0;
+  const verniz = Number(data.verniz) || 0;
+  const aquecimento = Number(data.aquecimento) || 0;
+
+  const properties = {
+    'Isolante Aplicado (Nº)': { number: isolante },
+    'Tapa-Poros Aplicado Nº': { number: tapaPoros },
+    'Verniz Aplicado (Nº)': { number: verniz },
+    'Aquecimento - Nº de Horas': { number: aquecimento }
+  };
+
+  const resp = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ properties })
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Notion update failed (${resp.status}): ${text}`);
   }
 }
 

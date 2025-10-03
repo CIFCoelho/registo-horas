@@ -256,7 +256,7 @@ Config do frontend (Estofagem):
 - Testar offline: desligar rede, efetuar ações, voltar a ligar e confirmar envio automático
 
 ### Outras secções
-- Recomenda‑se reutilizar o mesmo backend com novas rotas (`/estofagem`, `/pintura`, `/costura`) e variáveis `*_DB_ID` por secção.
+- O backend já expõe um fluxo genérico (`shift-basic.js`) para secções baseadas em turnos. Configure as variáveis de ambiente opcionais `COSTURA_DB_ID`, `PINTURA_DB_ID`, `PREPARACAO_MADEIRAS_DB_ID` e `MONTAGEM_DB_ID` para ativar as rotas `/costura`, `/pintura`, `/preparacao` e `/montagem`.
 
 ### Segurança e housekeeping
 - O ficheiro `server/.env` não deve ser versionado. Está ignorado em `.gitignore` e foi removido do repositório em favor das variáveis de ambiente na Render.
