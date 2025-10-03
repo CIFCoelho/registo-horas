@@ -1,0 +1,9 @@
+@import url('./sharedShift.css');
+
+body.preparacao-page .section-subtitle {
+  text-align: center;
+  color: #026042;
+  margin: 0 0 1rem;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+}
