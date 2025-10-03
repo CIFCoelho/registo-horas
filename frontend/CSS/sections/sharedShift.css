@@ -1,0 +1,100 @@
+/* Shared styles for shift-based sections */
+.employee-row {
+  display: flex;
+  align-items: center;
+}
+
+.right-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+/* Spacing between controls without relying on flex-gap (not on iOS 9) */
+.right-controls > * + * {
+  margin-left: 8px;
+}
+
+.right-controls .of-display {
+  margin-left: 0;
+}
+
+.action-btn {
+  background: #a4a3a3;
+  border: none;
+  color: #fff;
+  font-size: 24px;
+  width: 63px;
+  height: 60px;
+  line-height: 60px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: none;
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100; /* above bottom-sheet keypad */
+}
+
+.modal {
+  background: #fff;
+  padding: 1rem;
+  border-radius: 8px;
+  max-width: 95%;
+  width: 380px;
+}
+
+.modal div {
+  margin: 8px 0;
+}
+
+.modal button {
+  width: 100%;
+  margin: 4px 0;
+  padding: 0.6rem;
+  background: #038843;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 18px;
+}
+
+/* Larger, easier-to-tap dialogs on iPad and larger screens */
+@media (min-width: 768px) {
+  .modal {
+    width: 540px;
+    padding: 1.25rem 1.5rem;
+  }
+  .modal h3 {
+    font-size: 26px;
+    margin-top: 0;
+  }
+  .modal div,
+  .modal label {
+    font-size: 20px;
+  }
+  .modal button {
+    font-size: 22px;
+    padding: 0.8rem 1rem;
+  }
+  .modal select {
+    font-size: 20px;
+    padding: 0.5rem;
+    border-radius: 6px;
+  }
+  .modal input[type="radio"] {
+    /* Enlarge radio hit area for touch */
+    transform: scale(1.4);
+    margin-right: 8px;
+  }
+}
