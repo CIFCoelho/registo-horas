@@ -16,10 +16,10 @@ const COSTURA_DB_ID = process.env.COSTURA_DB_ID;
 const PINTURA_DB_ID = process.env.PINTURA_DB_ID;
 const PREPARACAO_MADEIRAS_DB_ID = process.env.PREPARACAO_MADEIRAS_DB_ID;
 const MONTAGEM_DB_ID = process.env.MONTAGEM_DB_ID;
-const PINTURA_ISOLANTE_PROP = process.env.PINTURA_ISOLANTE_PROP || 'Isolante Aplicado (Nº)';
-const PINTURA_TAPA_PROP = process.env.PINTURA_TAPA_PROP || 'Tapa-Poros Aplicado Nº';
-const PINTURA_VERNIZ_PROP = process.env.PINTURA_VERNIZ_PROP || 'Verniz Aplicado (Nº)';
-const PINTURA_AQUEC_PROP = process.env.PINTURA_AQUEC_PROP || 'Aquecimento - Nº de Horas';
+const PINTURA_ISOLANTE_PROP = process.env.PINTURA_ISOLANTE_PROP || 'Isolante Aplicado';
+const PINTURA_TAPA_PROP = process.env.PINTURA_TAPA_PROP || 'Tapa-Poros';
+const PINTURA_VERNIZ_PROP = process.env.PINTURA_VERNIZ_PROP || 'Verniz Aplicado';
+const PINTURA_AQUEC_PROP = process.env.PINTURA_AQUEC_PROP || 'Utilização do Aquecimento';
 const PORT = process.env.PORT || 8787;
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io';
 const KEEPALIVE_URL = process.env.KEEPALIVE_URL || '';
@@ -36,18 +36,18 @@ const NOTION_DATABASES = {
 };
 
 const ESTOFAGEM_REGISTOS_PROPS = {
-  title: process.env.ESTOFAGEM_REGISTOS_TITLE_PROP || 'Registo Por:',
+  title: process.env.ESTOFAGEM_REGISTOS_TITLE_PROP || 'Funcionário',
   data: process.env.ESTOFAGEM_REGISTOS_DATA_PROP || 'Data',
   of: process.env.ESTOFAGEM_REGISTOS_OF_PROP || 'Ordem de Fabrico',
-  cru: process.env.ESTOFAGEM_REGISTOS_CRU_PROP || 'Cru Por:',
-  tp: process.env.ESTOFAGEM_REGISTOS_TP_PROP || 'TP por:'
+  cru: process.env.ESTOFAGEM_REGISTOS_CRU_PROP || 'Cru:',
+  tp: process.env.ESTOFAGEM_REGISTOS_TP_PROP || 'TP:'
 };
 
 const PINTURA_PROP_ALIASES = {
-  isolante: [PINTURA_ISOLANTE_PROP, 'Isolante Aplicado Nº', 'Isolante Aplicado'],
-  tapaPoros: [PINTURA_TAPA_PROP, 'Tapa Poros Aplicado (Nº)', 'Tapa poros aplicado', 'Tapa-Poros Aplicado (Nº)'],
-  verniz: [PINTURA_VERNIZ_PROP, 'Verniz Aplicado Nº', 'Verniz'],
-  aquecimento: [PINTURA_AQUEC_PROP, 'Aquecimento Nº Horas', 'Aquecimento Horas', 'Aquecimento']
+  isolante: [PINTURA_ISOLANTE_PROP, 'Isolante Aplicado (Nº)', 'Isolante Aplicado Nº'],
+  tapaPoros: [PINTURA_TAPA_PROP, 'Tapa-Poros Aplicado Nº', 'Tapa Poros Aplicado (Nº)', 'Tapa poros aplicado'],
+  verniz: [PINTURA_VERNIZ_PROP, 'Verniz Aplicado (Nº)', 'Verniz Aplicado Nº', 'Verniz'],
+  aquecimento: [PINTURA_AQUEC_PROP, 'Aquecimento - Nº de Horas', 'Aquecimento Nº Horas', 'Aquecimento Horas']
 };
 
 // Guard rails: fail fast if secrets are missing
@@ -312,7 +312,7 @@ async function listOpenShifts(dbId) {
 
     const json = await resp.json();
     for (const page of json.results || []) {
-      const name = (page.properties?.['Colaborador']?.title?.[0]?.plain_text || '').trim();
+      const name = (page.properties?.['Funcionário']?.title?.[0]?.plain_text || '').trim();
       const of = page.properties?.['Ordem de Fabrico']?.number || null;
       const start = page.properties?.['Início do Turno']?.date?.start || null;
       if (name) sessions.push({ funcionario: name, of, start, id: page.id });
@@ -354,7 +354,7 @@ async function listAcabamentoOptions(ofNumber) {
 
     const json = await resp.json();
     for (const page of json.results || []) {
-      const name = (page.properties?.['Colaborador']?.title?.[0]?.plain_text || '').trim();
+      const name = (page.properties?.['Funcionário']?.title?.[0]?.plain_text || '').trim();
       if (name) names.add(name);
     }
     start_cursor = json.has_more ? json.next_cursor : undefined;
@@ -369,7 +369,7 @@ async function createShiftStart(dbId, data) {
   const payload = {
     parent: { database_id: dbId },
     properties: {
-      'Colaborador': { title: [{ text: { content: data.funcionario } }] },
+      'Funcionário': { title: [{ text: { content: data.funcionario } }] },
       'Ordem de Fabrico': { number: Number(data.of) || null },
       'Início do Turno': { date: { start: startISO } }
     }
@@ -390,7 +390,7 @@ async function findOpenShiftPage(dbId, funcionario) {
   const query = {
     filter: {
       and: [
-        { property: 'Colaborador', title: { equals: funcionario } },
+        { property: 'Funcionário', title: { equals: funcionario } },
         { property: 'Final do Turno', date: { is_empty: true } }
       ]
     },
