@@ -508,23 +508,6 @@
         keypad.appendChild(row);
       }
 
-      // Add "Trabalho Geral" button for OF=0
-      var geralBtn = document.createElement('button');
-      geralBtn.id = 'geral-btn';
-      geralBtn.textContent = 'Trabalho Geral';
-      geralBtn.style.cssText = 'width: 100%; padding: 15px; font-size: 18px; background: #4a90e2; color: white; border: none; border-radius: 8px; margin-bottom: 10px; cursor: pointer;';
-      geralBtn.onclick = function () {
-        currentOF = '0';
-        if (activeEmployee) {
-          if (isSwitchingOF && activeSessions[activeEmployee] === '0') {
-            setStatus('Erro: já está em trabalho geral.', 'red');
-            return;
-          }
-          sendAction(card, isSwitchingOF);
-        }
-      };
-      keypad.appendChild(geralBtn);
-
       var cancelBtn = document.createElement('button');
       cancelBtn.id = 'cancel-btn';
       cancelBtn.textContent = 'Cancelar';
