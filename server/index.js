@@ -494,6 +494,7 @@ async function closeShiftEntry(dbId, data) {
   const inicioTurnoProp = resolveProperty(page, 'inicioTurno');
   const finalTurnoProp = resolveProperty(page, 'finalTurno');
   const notasProp = resolveProperty(page, 'notas');
+  const notasType = getPropertyType(page, notasProp);
 
   const startProp = page.properties?.[inicioTurnoProp]?.date?.start;
   const startDate = startProp ? new Date(startProp) : null;
@@ -504,9 +505,12 @@ async function closeShiftEntry(dbId, data) {
     [finalTurnoProp]: { date: { start: adjustment.endDate.toISOString() } }
   };
 
-  if (adjustment.note) {
+  // Only add notes if property is rich_text (some databases use select instead)
+  if (adjustment.note && notasType === 'rich_text') {
     const combinedNotes = combineNotes(page.properties?.[notasProp]?.rich_text, adjustment.note);
     properties[notasProp] = { rich_text: [{ text: { content: combinedNotes } }] };
+  } else if (adjustment.note && notasType !== 'rich_text') {
+    console.warn(`⚠️  Cannot write note: "${notasProp}" is type "${notasType}", expected "rich_text". Skipping note.`);
   }
 
   console.log(`📝 Closing shift for ${data.funcionario} using properties: Início=${inicioTurnoProp}, Final=${finalTurnoProp}`);
@@ -531,22 +535,27 @@ async function cancelShiftEntry(dbId, data) {
   // Flexible property name resolution
   const finalTurnoProp = resolveProperty(page, 'finalTurno');
   const notasProp = resolveProperty(page, 'notas');
+  const notasType = getPropertyType(page, notasProp);
 
-  const payload = {
-    properties: {
-      [finalTurnoProp]: { date: { start: endISO } },
-      [notasProp]: {
-        rich_text: [{ text: { content: 'Turno cancelado manualmente' } }]
-      }
-    }
+  const properties = {
+    [finalTurnoProp]: { date: { start: endISO } }
   };
+
+  // Only add notes if property is rich_text (some databases use select instead)
+  if (notasType === 'rich_text') {
+    properties[notasProp] = {
+      rich_text: [{ text: { content: 'Turno cancelado manualmente' } }]
+    };
+  } else {
+    console.warn(`⚠️  Cannot write cancellation note: "${notasProp}" is type "${notasType}", expected "rich_text". Skipping note.`);
+  }
 
   console.log(`🚫 Cancelling shift for ${data.funcionario} using property: Final=${finalTurnoProp}`);
 
   const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
     headers,
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ properties })
   });
   if (!resp2.ok) {
     const text = await resp2.text();
@@ -638,6 +647,13 @@ function resolveProperty(page, aliasKey) {
   return candidates[0];
 }
 
+// Get property type from page
+function getPropertyType(page, propName) {
+  if (!page || !page.properties || !propName) return null;
+  const prop = page.properties[propName];
+  return prop ? prop.type : null;
+}
+
 async function finishIncompleteEntry(dbId, data) {
   if (!data.tipo || !data.iniciou || typeof data.minutosRestantes === 'undefined') {
     throw new Error('Dados incompletos');
@@ -652,6 +668,7 @@ async function finishIncompleteEntry(dbId, data) {
   // Flexible property name resolution
   const inicioTurnoProp = resolveProperty(page, 'inicioTurno');
   const notasProp = resolveProperty(page, 'notas');
+  const notasType = getPropertyType(page, notasProp);
 
   const startProp = page.properties?.[inicioTurnoProp]?.date?.start;
   if (!startProp) throw new Error('Início do Turno não encontrado');
@@ -659,15 +676,22 @@ async function finishIncompleteEntry(dbId, data) {
   const minutes = Math.max(0, Number(data.minutosRestantes) || 0);
   const adjustedStartISO = new Date(startDate.getTime() + minutes * 60_000).toISOString();
 
-  const tipo = String(data.tipo).trim();
-  const newNote = `Terminou ${tipo} iniciado por ${data.iniciou} durante ${minutes} min`;
-  const combinedNotes = combineNotes(page.properties?.[notasProp]?.rich_text, newNote);
+  const properties = {
+    [inicioTurnoProp]: { date: { start: adjustedStartISO } }
+  };
+
+  // Only add notes if property is rich_text (some databases use select instead)
+  if (notasType === 'rich_text') {
+    const tipo = String(data.tipo).trim();
+    const newNote = `Terminou ${tipo} iniciado por ${data.iniciou} durante ${minutes} min`;
+    const combinedNotes = combineNotes(page.properties?.[notasProp]?.rich_text, newNote);
+    properties[notasProp] = { rich_text: [{ text: { content: combinedNotes } }] };
+  } else {
+    console.warn(`⚠️  Cannot write incomplete finish note: "${notasProp}" is type "${notasType}", expected "rich_text". Skipping note.`);
+  }
 
   const payload = {
-    properties: {
-      [inicioTurnoProp]: { date: { start: adjustedStartISO } },
-      [notasProp]: { rich_text: [{ text: { content: combinedNotes } }] }
-    }
+    properties
   };
 
   const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
