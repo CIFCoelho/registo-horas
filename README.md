@@ -84,6 +84,8 @@ registo-horas/
 }
 ```
 
+**Nota:** A partir de agora, é possível usar `"of": "0"` para registar **trabalho geral** (trabalho que não está associado a nenhuma OF específica). O sistema exibe "Geral" na interface quando OF=0.
+
 ---
 
 ## 📄 Estrutura das Bases de Dados
@@ -92,12 +94,14 @@ registo-horas/
 
 Cada registo contém:
 - **Funcionário** (title): Nome do colaborador
-- **Ordem de Fabrico** (number): Número da OF
+- **Ordem de Fabrico** (number): Número da OF (usar `0` para trabalho geral)
 - **Início do Turno** (date): Data e hora de início
 - **Final do Turno** (date): Data e hora de fim
 - **Notas do Sistema** (rich_text): Informações automáticas (pausas, cancelamentos, etc.)
 
 A duração é calculada automaticamente descontando a pausa das **10h00–10h10** quando aplicável.
+
+**Trabalho Geral (OF=0):** Quando OF é definido como `0`, representa trabalho não associado a nenhuma ordem específica (ex: limpeza, manutenção, formação). Na interface, aparece como "Geral".
 
 ### 🧵 "Costura":
 

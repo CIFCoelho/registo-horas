@@ -38,6 +38,12 @@
       return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
     }
 
+    function formatOFDisplay(ofValue) {
+      // Display "Geral" for OF=0 (general work)
+      if (ofValue === '0' || ofValue === 0) return 'Geral';
+      return String(ofValue);
+    }
+
     function setStatus(message, color) {
       if (statusTimeoutId) {
         clearTimeout(statusTimeoutId);
@@ -169,7 +175,7 @@
       var ofValue = activeSessions[name];
       if (ofValue) {
         ui.card.classList.add('active');
-        ui.ofDisplay.textContent = ofValue;
+        ui.ofDisplay.textContent = formatOFDisplay(ofValue);
       } else {
         ui.card.classList.remove('active');
         ui.ofDisplay.textContent = '+';
@@ -268,7 +274,7 @@
 
       var display = document.createElement('div');
       display.id = 'of-display';
-      display.textContent = currentOF;
+      display.textContent = currentOF === '0' ? 'Geral' : currentOF;
       keypad.appendChild(display);
 
       var rows = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['←', '0', 'OK']];
@@ -287,6 +293,18 @@
         }
         keypad.appendChild(row);
       }
+
+      // Add "Trabalho Geral" button for OF=0
+      var geralBtn = document.createElement('button');
+      geralBtn.id = 'geral-btn';
+      geralBtn.textContent = 'Trabalho Geral';
+      geralBtn.style.cssText = 'width: 100%; padding: 15px; font-size: 18px; background: #4a90e2; color: white; border: none; border-radius: 8px; margin-bottom: 10px; cursor: pointer;';
+      geralBtn.onclick = function () {
+        if (activeEmployee) {
+          submitStart(activeEmployee, '0');
+        }
+      };
+      keypad.appendChild(geralBtn);
 
       var cancelBtn = document.createElement('button');
       cancelBtn.id = 'cancel-btn';
@@ -311,14 +329,15 @@
         if (currentOF.length < 6) currentOF += key;
       }
 
-      display.textContent = currentOF;
+      display.textContent = currentOF === '0' ? 'Geral' : currentOF;
     }
 
     function submitStart(name, ofValue) {
       if (!name || !ofValue) return;
       var previousOF = activeSessions[name] ? String(activeSessions[name]) : '';
       if (switchingOF && previousOF === String(ofValue)) {
-        setStatus('Já está na OF ' + ofValue + '.', 'red');
+        var msg = ofValue === '0' ? 'Já está em trabalho geral.' : 'Já está na OF ' + ofValue + '.';
+        setStatus(msg, 'red');
         closeKeypad();
         return;
       }
@@ -330,7 +349,8 @@
       activeSessions[name] = String(ofValue);
       persistActiveSessions();
       updateCardState(name);
-      setStatus('Turno iniciado para ' + name + ' na OF ' + ofValue + '.', '#026042');
+      var displayText = ofValue === '0' ? 'trabalho geral' : 'OF ' + ofValue;
+      setStatus('Turno iniciado para ' + name + ' em ' + displayText + '.', '#026042');
 
       // Send requests asynchronously (don't block UI)
       var currentTime = new Date();

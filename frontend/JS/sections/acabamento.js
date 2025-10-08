@@ -244,9 +244,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (activeSessions[name]) {
       btn.classList.add('active');
-      ofDisplay.textContent = activeSessions[name];
+      ofDisplay.textContent = formatOFDisplay(activeSessions[name]);
       actionBtn.style.display = 'inline-block';
-
     }
   });
 
@@ -337,6 +336,12 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (e) { return config.webAppUrl + '/open'; }
   }
 
+  function formatOFDisplay(ofValue) {
+    // Display "Geral" for OF=0 (general work)
+    if (ofValue === '0' || ofValue === 0) return 'Geral';
+    return String(ofValue);
+  }
+
   function applySessionsToUI(serverMap) {
     // serverMap: { [name]: of }
     var changed = false;
@@ -365,7 +370,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!btn || !ofDisplay || !actionBtn) continue;
       if (activeSessions[n]) {
         btn.classList.add('active');
-        ofDisplay.textContent = activeSessions[n];
+        ofDisplay.textContent = formatOFDisplay(activeSessions[n]);
         actionBtn.style.display = 'inline-block';
       } else {
         btn.classList.remove('active');
@@ -443,7 +448,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var display = document.createElement('div');
     display.id = 'of-display';
-    display.textContent = currentOF;
+    display.textContent = currentOF === '0' ? 'Geral' : currentOF;
     keypad.appendChild(display);
 
     var rows = [['1','2','3'], ['4','5','6'], ['7','8','9'], ['←','0','OK']];
@@ -462,6 +467,23 @@ document.addEventListener('DOMContentLoaded', function () {
       });
       keypad.appendChild(rowDiv);
     });
+
+    // Add "Trabalho Geral" button for OF=0
+    var geralBtn = document.createElement('button');
+    geralBtn.id = 'geral-btn';
+    geralBtn.textContent = 'Trabalho Geral';
+    geralBtn.style.cssText = 'width: 100%; padding: 15px; font-size: 18px; background: #4a90e2; color: white; border: none; border-radius: 8px; margin-bottom: 10px; cursor: pointer;';
+    geralBtn.onclick = function () {
+      currentOF = '0';
+      if (activeEmployee) {
+        if (isSwitchingOF && activeSessions[activeEmployee] === '0') {
+          setStatus('Erro: já está em trabalho geral.', 'red');
+          return;
+        }
+        sendAction(btn, isSwitchingOF);
+      }
+    };
+    keypad.appendChild(geralBtn);
 
     var cancelBtn = document.createElement('button');
     cancelBtn.id = 'cancel-btn';
@@ -488,7 +510,8 @@ document.addEventListener('DOMContentLoaded', function () {
     } else if (key === 'OK') {
       if (currentOF && activeEmployee) {
         if (isSwitchingOF && activeSessions[activeEmployee] === currentOF) {
-          setStatus('Erro: já está nessa OF.', 'red');
+          var msg = currentOF === '0' ? 'Erro: já está em trabalho geral.' : 'Erro: já está nessa OF.';
+          setStatus(msg, 'red');
           return;
         }
         sendAction(btn, isSwitchingOF);
@@ -496,7 +519,7 @@ document.addEventListener('DOMContentLoaded', function () {
     } else {
       if (currentOF.length < 6) currentOF += key;
     }
-    display.textContent = currentOF;
+    display.textContent = currentOF === '0' ? 'Geral' : currentOF;
   }
 
   function resetKeypadState() {
@@ -519,9 +542,10 @@ document.addEventListener('DOMContentLoaded', function () {
       activeSessions[name] = newOF;
       persistActiveSessions();
       btn.classList.add('active');
-      btn.querySelector('.of-display').textContent = newOF;
+      btn.querySelector('.of-display').textContent = formatOFDisplay(newOF);
       actionButtons[name].style.display = 'inline-block';
-      setStatus('Registado: ' + name + ' [' + newOF + ']', 'green');
+      var displayText = newOF === '0' ? 'Geral' : newOF;
+      setStatus('Registado: ' + name + ' [' + displayText + ']', 'green');
       resetKeypadState();
     }
 

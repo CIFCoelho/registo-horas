@@ -42,7 +42,7 @@ Precisas criar **7 bases de dados** no novo workspace. Aqui está a estrutura de
 
 | Nome da Propriedade | Tipo | Notas |
 |---------------------|------|-------|
-| `Colaborador` | **Title** | Obrigatório (é a coluna principal) |
+| `Funcionário` | **Title** | Obrigatório (é a coluna principal) |
 | `Ordem de Fabrico` | **Number** | |
 | `Início do Turno` | **Date** | Incluir hora |
 | `Final do Turno` | **Date** | Incluir hora |
@@ -51,9 +51,11 @@ Precisas criar **7 bases de dados** no novo workspace. Aqui está a estrutura de
 **Como criar:**
 1. No Notion, criar nova página de Database (Table)
 2. Nomear: **"Acabamento"**
-3. Renomear a coluna "Name" para **"Colaborador"**
+3. Renomear a coluna "Name" para **"Funcionário"**
 4. Adicionar as outras propriedades usando o tipo correto
-5. Confirmar que a coluna **"Colaborador"** está marcada como "Title"
+5. Confirmar que a coluna **"Funcionário"** está marcada como "Title"
+
+**Nota:** O backend suporta tanto "Funcionário" como "Colaborador" devido a aliases, mas recomenda-se usar "Funcionário" como padrão.
 
 ---
 
@@ -63,7 +65,7 @@ Precisas criar **7 bases de dados** no novo workspace. Aqui está a estrutura de
 
 | Nome da Propriedade | Tipo |
 |---------------------|------|
-| `Colaborador` | **Title** |
+| `Funcionário` | **Title** |
 | `Ordem de Fabrico` | **Number** |
 | `Início do Turno` | **Date** (com hora) |
 | `Final do Turno` | **Date** (com hora) |
@@ -75,11 +77,11 @@ Precisas criar **7 bases de dados** no novo workspace. Aqui está a estrutura de
 
 | Nome da Propriedade | Tipo |
 |---------------------|------|
-| `Registo Por:` | **Title** |
+| `Funcionário` | **Title** |
 | `Data` | **Date** |
 | `Ordem de Fabrico` | **Number** |
-| `Cru Por:` | **Text** |
-| `TP por:` | **Text** |
+| `Cru:` | **Text** |
+| `TP:` | **Text** |
 
 ---
 
@@ -87,7 +89,7 @@ Precisas criar **7 bases de dados** no novo workspace. Aqui está a estrutura de
 
 | Nome da Propriedade | Tipo |
 |---------------------|------|
-| `Colaborador` | **Title** |
+| `Funcionário` | **Title** |
 | `Ordem de Fabrico` | **Number** |
 | `Início do Turno` | **Date** (com hora) |
 | `Final do Turno` | **Date** (com hora) |
@@ -99,7 +101,7 @@ Precisas criar **7 bases de dados** no novo workspace. Aqui está a estrutura de
 
 | Nome da Propriedade | Tipo | Notas |
 |---------------------|------|-------|
-| `Colaborador` | **Title** |
+| `Funcionário` | **Title** |
 | `Ordem de Fabrico` | **Number** |
 | `Início do Turno` | **Date** (com hora) |
 | `Final do Turno` | **Date** (com hora) |
@@ -115,7 +117,7 @@ Precisas criar **7 bases de dados** no novo workspace. Aqui está a estrutura de
 
 | Nome da Propriedade | Tipo |
 |---------------------|------|
-| `Colaborador` | **Title** |
+| `Funcionário` | **Title** |
 | `Ordem de Fabrico` | **Number** |
 | `Início do Turno` | **Date** (com hora) |
 | `Final do Turno` | **Date** (com hora) |
@@ -127,7 +129,7 @@ Precisas criar **7 bases de dados** no novo workspace. Aqui está a estrutura de
 
 | Nome da Propriedade | Tipo |
 |---------------------|------|
-| `Colaborador` | **Title** |
+| `Funcionário` | **Title** |
 | `Ordem de Fabrico` | **Number** |
 | `Início do Turno` | **Date** (com hora) |
 | `Final do Turno` | **Date** (com hora) |
@@ -350,7 +352,7 @@ Não deve aparecer nada (exceto em `node_modules` ou `.git`)
 ### Erro: "property_not_found" ou "validation_error"
 - Nome de propriedade incorreto (case-sensitive!)
 - Verificar que os nomes são EXATAMENTE:
-  - `Colaborador` (e não "colaborador" ou "Colaboradores")
+  - `Funcionário` (e não "funcionario" ou "Colaborador", embora aliases existam)
   - `Ordem de Fabrico` (com espaço)
   - `Início do Turno` / `Final do Turno`
 

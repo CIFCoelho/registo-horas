@@ -375,11 +375,14 @@ async function listAcabamentoOptions(ofNumber) {
 async function createShiftStart(dbId, data) {
   const startISO = hhmmToTodayISO(data.hora);
 
+  // Handle OF=0 explicitly (general work) - don't convert to null
+  const ofNumber = data.of !== null && data.of !== undefined ? Number(data.of) : null;
+
   const payload = {
     parent: { database_id: dbId },
     properties: {
       'Funcionário': { title: [{ text: { content: data.funcionario } }] },
-      'Ordem de Fabrico': { number: Number(data.of) || null },
+      'Ordem de Fabrico': { number: ofNumber },
       'Início do Turno': { date: { start: startISO } }
     }
   };
