@@ -470,31 +470,44 @@
         return;
       }
 
-      fetchAcabamentoOptions(ofValue, function (options) {
-        var unique = [];
-        var seen = {};
-        var source = Array.isArray(fallbackOptions) ? fallbackOptions.slice() : [];
-        if (Array.isArray(options) && options.length) {
+      // Open modal IMMEDIATELY with fallback options for instant UX
+      var initialOptions = Array.isArray(fallbackOptions) ? fallbackOptions.slice() : [];
+      var modalContext = openRegisterModal(name, ofValue, initialOptions);
+
+      // Fetch options in BACKGROUND and update dropdown when ready
+      fetchAcabamentoOptions(ofValue, 3000, function (options) {
+        if (options && options.length && modalContext && modalContext.updateOptions) {
+          var unique = [];
+          var seen = {};
+          var source = fallbackOptions.slice();
           source = source.concat(options);
-        }
-        for (var i = 0; i < source.length; i++) {
-          var opt = String(source[i] || '').trim();
-          if (!opt) continue;
-          if (!seen[opt]) {
-            seen[opt] = true;
-            unique.push(opt);
+          for (var i = 0; i < source.length; i++) {
+            var opt = String(source[i] || '').trim();
+            if (!opt) continue;
+            if (!seen[opt]) {
+              seen[opt] = true;
+              unique.push(opt);
+            }
           }
+          modalContext.updateOptions(unique);
         }
-        openRegisterModal(name, ofValue, unique);
       });
     }
 
-    function fetchAcabamentoOptions(ofValue, cb) {
+    function fetchAcabamentoOptions(ofValue, timeout, cb) {
+      var completed = false;
+      var timeoutId = setTimeout(function () {
+        completed = true;
+        cb([]); // Timeout - use fallback
+      }, timeout || 3000);
+
       try {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', API_URL + '/options?of=' + encodeURIComponent(ofValue), true);
         xhr.onreadystatechange = function () {
-          if (xhr.readyState === 4) {
+          if (xhr.readyState === 4 && !completed) {
+            clearTimeout(timeoutId);
+            completed = true;
             if (xhr.status >= 200 && xhr.status < 300) {
               try {
                 var resp = JSON.parse(xhr.responseText || '{}');
@@ -507,10 +520,20 @@
             cb([]);
           }
         };
-        xhr.onerror = function () { cb([]); };
+        xhr.onerror = function () {
+          if (!completed) {
+            clearTimeout(timeoutId);
+            completed = true;
+            cb([]);
+          }
+        };
         xhr.send();
       } catch (_) {
-        cb([]);
+        if (!completed) {
+          clearTimeout(timeoutId);
+          completed = true;
+          cb([]);
+        }
       }
     }
 
@@ -624,6 +647,9 @@
 
       var selectionState = { cru: null, tp: null };
 
+      // Mutable options reference for dynamic updates
+      var currentOptions = optionsList || [];
+
       function updateConfirmState() {
         confirmBtn.disabled = !(selectionState.cru && selectionState.tp);
       }
@@ -662,13 +688,14 @@
           dropdown = document.createElement('div');
           dropdown.className = 'dropdown';
 
-          if (!optionsList || !optionsList.length) {
+          // Use currentOptions (dynamically updated)
+          if (!currentOptions || !currentOptions.length) {
             var empty = document.createElement('div');
             empty.className = 'dropdown-empty';
             empty.textContent = 'Sem opções disponíveis';
             dropdown.appendChild(empty);
           } else {
-            for (var idx = 0; idx < optionsList.length; idx++) {
+            for (var idx = 0; idx < currentOptions.length; idx++) {
               (function (optionName) {
                 var optBtn = document.createElement('button');
                 optBtn.type = 'button';
@@ -681,7 +708,7 @@
                   updateConfirmState();
                 };
                 dropdown.appendChild(optBtn);
-              })(optionsList[idx]);
+              })(currentOptions[idx]);
             }
           }
 
@@ -755,6 +782,15 @@
       activeRegisterModal = {
         overlay: overlay,
         onKeyDown: onKeyDown
+      };
+
+      // Return context for dynamic option updates
+      return {
+        updateOptions: function (newOptions) {
+          if (Array.isArray(newOptions)) {
+            currentOptions = newOptions;
+          }
+        }
       };
     }
 
