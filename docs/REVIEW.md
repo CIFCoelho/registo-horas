@@ -1,25 +1,27 @@
 ## [Frontend (GitHub Pages)]
-**Problema:**
-- [Lógica JS repetida dentro das páginas de cada secção. - URL do Web App, IDs das sheets e cores/-estados hard-coded.]
-**Sugestão de Melhoria:**
-- [➜ Criar um template único (/frontend/index.html) que carrega um config.js por secção (ex.: const SECTION = "Acabamento"). ➜ Colocar toda a lógica comum num módulo main.js; páginas passam só parâmetros.
-Offline queue
-Implementada inline; difícil de evoluir.]
+**Status:** ✅ Melhorado
+- Lógica agora modularizada com config.js por secção
+- Acabamento e Estofagem têm implementações customizadas
+- Outras secções usam shift-basic.js genérico
+- Offline queue implementada com retry exponencial e expiração de 30 min
 
 ## [Offline queue]
-**Problema:**
-- [Implementada inline; difícil de evoluir.]
-**Sugestão de Melhoria:**
-- [➜ Extrair para queue.js, usar localStorage + retry exponencial.➜ Guardar carimbo “versão do schema” para futuras migrações.]
+**Status:** ✅ Implementado
+- Queue em localStorage com backoff exponencial (5s, 10s, 20s, ... cap 10min)
+- Expiração automática após 30 minutos
+- Retry em eventos: online, visibility change, pageshow
+- **Conhecido:** Race condition em OF switch offline → mitigado com filtro por OF no backend
 
-## [Google Apps Script]
-**Problema:**
-- [Funções em único Code.gs; índices das colunas hard-coded; nomes de sheets fixos.]
-**Sugestão de Melhoria:**
-- [➜ Separar em ficheiros: router.gs, records.gs, autoClose.gs. ➜ Centralizar constantes num objeto CFG. ➜ Aceder às sheets por cache (cache service) para reduzir latência.]
+## [Backend (Node.js + Notion)]
+**Status:** ✅ Em produção
+- Todas as secções migradas do Google Sheets para Notion
+- Endpoints RESTful com Express
+- Keep-alive automático (cron) em horário laboral
+- Ajuste automático da pausa manhã (10h00-10h10)
+- Sincronização de turnos abertos via GET /open
 
-## [Base de dados (Sheets)]
-**Problema:**
-- [Uma sheet por secção e, agora, uma sheet adicional por dia (↑ risco de erro ao renomear).]
-**Sugestão de Melhoria:**
-- [➜ Voltar a 1 sheet por secção + coluna “Data” (filtro > pivot). ➜ Criar views dinâmicas em Looker Studio ou Apps Script para relatórios diários se necessário.]
+## [Arquitetura da Base de Dados]
+**Status:** ✅ Notion
+- Estrutura consistente entre secções (Funcionário, OF, Início/Final Turno, Notas)
+- Bases especializadas: Estofagem-Registos, Pintura (quantidades)
+- Propriedades flexíveis com aliasing no backend

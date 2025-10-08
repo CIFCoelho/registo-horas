@@ -1,6 +1,6 @@
 # 📘 Registo de Produtividade
 
-Sistema leve e modular de registo de produtividade de colaboradores, com foco em ambientes industriais com equipamentos antigos (ex: iPad 2). A primeira versão usava Google Sheets (Apps Script), mas a secção **Acabamento** já envia registos para uma base de dados no Notion através de um pequeno backend Node.js alojado na Render.
+Sistema leve e modular de registo de produtividade de colaboradores, com foco em ambientes industriais com equipamentos antigos (ex: iPad 2). Todas as secções enviam registos para bases de dados no Notion através de um backend Node.js alojado na Render.
 
 Backend atual em produção: `https://registo-horas.onrender.com`
 
@@ -12,9 +12,9 @@ Backend atual em produção: `https://registo-horas.onrender.com`
 
 - Registo de **início e fim de turno** por funcionário e OF (Ordem de Fabrico)
 - Compatível com **iPad 2 em modo quiosque (Safari 9.3.5)**
-- Funciona **offline até 30 minutos** com fila local (`localStorage`) – implementado na secção **Acabamento**
-- Envia registos para uma **Google Sheet** ou **Notion**, consoante a secção (no futuro todos serão enviados para o Notion)
-- Integração direta com o **Notion** através de um backend Node.js
+- Funciona **offline até 30 minutos** com fila local (`localStorage`)
+- Envia registos para bases de dados **Notion** através de um backend Node.js
+- Integração direta com o **Notion** para todas as secções
 - Botão de ações para **cancelar turno** ou **registar acabamento incompleto**
 - Cálculo automático de duração dos turnos
 - Interface otimizada para ecrãs pequenos (iPad 2) seguindo as cores da Certoma
@@ -44,7 +44,7 @@ Endpoints relevantes (backend):
 - `GET /estofagem/options?of=123` – devolve colaboradores de Acabamento atualmente a trabalhar na mesma OF (para sugerir nomes no "Registar Acab.")
 
 Semântica de ações (`POST /acabamento`):
-- `start`: cria página com “Colaborador”, “Ordem de Fabrico” e “Início do Turno” (data ISO do dia + hora dada).
+- `start`: cria página com "Funcionário", "Ordem de Fabrico" e "Início do Turno" (data ISO do dia + hora dada).
 - `end`: fecha o turno mais recente em aberto do colaborador, definindo “Final do Turno” (aplica desconto automático de 10 min se o turno atravessar a pausa das 10h00–10h10).
 - `cancel`: fecha o turno em aberto e acrescenta “Notas do Sistema: Turno cancelado manualmente”.
 - `finishIncomplete`: ajusta “Início do Turno” para a frente em `minutosRestantes` (desconta esse tempo) e acrescenta nota com o tipo e quem iniciou.
@@ -86,20 +86,18 @@ registo-horas/
 
 ---
 
-## 📄 Estrutura dos Sheets
+## 📄 Estrutura das Bases de Dados
 
-### 🏷 "Acabamento", "Estofagem - Tempo", "Pintura", etc:
+### 🏷 Estrutura das bases Notion (Acabamento, Estofagem - Tempo, Pintura, etc):
 
-| Data | Funcionário | OF | Início | Fim | Duração (h) |
-|------|-------------|----|--------|-----|--------------|
+Cada registo contém:
+- **Funcionário** (title): Nome do colaborador
+- **Ordem de Fabrico** (number): Número da OF
+- **Início do Turno** (date): Data e hora de início
+- **Final do Turno** (date): Data e hora de fim
+- **Notas do Sistema** (rich_text): Informações automáticas (pausas, cancelamentos, etc.)
 
- - A coluna **Duração (h)** é calculada no Apps Script ou via fórmula.
-   Para descontar a pausa das **10h00–10h10**, utilize:
-   `=IF(AND(D2<>"";E2<>"");
-      ROUND(((TIMEVALUE(E2)-TIMEVALUE(D2))
-             -MAX(0;MIN(TIMEVALUE(E2);TIME(10;10;0))
-                    -MAX(TIMEVALUE(D2);TIME(10;0;0))))*24;2);
-      "")`
+A duração é calculada automaticamente descontando a pausa das **10h00–10h10** quando aplicável.
 
 ### 🧵 "Costura":
 
@@ -159,15 +157,10 @@ Config do frontend (Acabamento):
 
 Config do frontend (Estofagem):
 - `frontend/JS/config/estofagem.config.js` → ajustar `webAppUrl`, lista de colaboradores e (opcionalmente) nomes sugeridos por omissão para o modal de acabamento
-- A nova interface sincroniza turnos ativos com `GET /estofagem/open`, suporta fila offline (mesma filosofia do Acabamento) e, ao abrir o modal “Registar Acab.”, consulta `GET /estofagem/options?of=…` para listar os colaboradores atualmente ativos no Acabamento para a mesma OF
+- A nova interface sincroniza turnos ativos com `GET /estofagem/open`, suporta fila offline (mesma filosofia do Acabamento) e, ao abrir o modal "Registar Acab.", consulta `GET /estofagem/options?of=…` para listar os colaboradores atualmente ativos no Acabamento para a mesma OF
 - Tal como no Acabamento, tocar no círculo da OF quando há turno ativo fecha a OF corrente e abre uma nova com o número introduzido
 
-### 2. Google Apps Script (legacy)
-
-- Apps Script > Deploy as Web App > Acesso: "Anyone" 
-- Copiar URL e adicionar como `WEB_APP_URL` em **GitHub Secrets**
-
-### 3. GitHub Pages
+### 2. GitHub Pages
 
 - Ativar GitHub Pages: Source = "Deploy from a branch" → Branch `main` → `/ (root)`.
 - O site ficará acessível em `https://<utilizador>.github.io/registo-horas/index.html`.
@@ -179,10 +172,12 @@ Config do frontend (Estofagem):
 ## 🧠 Roadmap
 
 - [x] Suporte a Acabamento (tempo por OF)
-- [ ] Estofagem - Tempo (corrigir queue offline)
-- [ ] Estofagem - Registos Acab. (quantidades)
-- [ ] Costura (quantidade + tempo)
-- [ ] Pintura (quantidade + tempo)
+- [x] Estofagem - Tempo (com offline queue)
+- [x] Estofagem - Registos Acab. (seleção de colaboradores)
+- [x] Pintura (quantidade + tempo)
+- [x] Preparação de Madeiras (tempo por OF)
+- [ ] Costura (adicionar quantidades por tipo de peça)
+- [ ] Montagem (configuração completa)
 - [ ] Dashboard interativo com filtros e KPIs
 - [ ] Sincronização com ERP
 
@@ -210,14 +205,14 @@ Config do frontend (Estofagem):
 - O token da integração agora pode começar por `ntn_` (válido). O importante é ser o token da integração ativa e a DB estar partilhada com essa integração.
 - Partilhar a DB: abrir DB → menu `…` → Add connections → escolher a integração.
 - Propriedades que o backend espera (nomes exatos):
-  - “Colaborador” (title)
-  - “Ordem de Fabrico” (number)
-  - “Início do Turno” (date)
-  - “Final do Turno” (date)
-  - “Notas do Sistema” (rich_text)
+  - "Funcionário" (title)
+  - "Ordem de Fabrico" (number)
+  - "Início do Turno" (date)
+  - "Final do Turno" (date)
+  - "Notas do Sistema" (rich_text)
 
 #### Estofagem – Tempo
-- Mesma estrutura do Acabamento: "Colaborador", "Ordem de Fabrico", "Início do Turno", "Final do Turno" e "Notas do Sistema".
+- Mesma estrutura do Acabamento: "Funcionário", "Ordem de Fabrico", "Início do Turno", "Final do Turno" e "Notas do Sistema".
 - O backend aplica automaticamente a subtração de 10 minutos sempre que o turno abrange a pausa das 10h00–10h10.
 
 #### Estofagem – Registos Acab.
@@ -239,12 +234,12 @@ Config do frontend (Estofagem):
 - Um sincronizador leve faz `GET <webAppUrl>/open` no arranque, a cada 2 minutos e quando a página volta a estar visível, limpando/atualizando os botões “ativos” após fechamentos registados noutros dispositivos.
 - Compatibilidade: usa `XMLHttpRequest` para suportar Safari 9 (iPad 2). A hora (`hora`) é formatada em `HH:MM` via um fallback compatível, em vez de depender de `toLocaleTimeString` em navegadores antigos.
 
-#### Fila Offline – Acabamento
-- As ações `start`, `end`, `cancel`, `finishIncomplete` são enfileiradas em `localStorage` quando a rede falha (status 0/429/5xx) e reenviadas automaticamente.
+#### Fila Offline – Acabamento & Estofagem
+- As ações `start`, `end`, `cancel`, `finishIncomplete` são enfileiradas em `localStorage` quando a rede falha (status 0/429/503/5xx) e reenviadas automaticamente.
 - Backoff exponencial: 5s, 10s, 20s, … até 10 min, com tentativa periódica a cada ~20s e também quando a página volta a estar visível/online.
 - Expiração: itens com mais de 30 minutos são descartados.
-- UI: mostra “Sem ligação. Guardado para envio automático.” quando um pedido é enfileirado.
-- Limitação conhecida: ao trocar de OF em modo offline, o pedido `start` pode chegar antes do `end` anterior; como o backend fecha “o turno mais recente” do colaborador, um `end` tardio pode fechar a OF mais recente. Mitigação futura: fechar por OF específica no backend.
+- UI: mostra "Sem ligação. Guardado para envio automático." ou "Sistema a iniciar, aguarde..." conforme apropriado.
+- **Mitigação race condition**: O backend agora fecha turnos filtrando por OF específica, evitando fechos incorretos quando pedidos offline chegam fora de ordem.
 
 #### Fuso horário
 - O backend força `Europe/Lisbon` (`process.env.TZ`) para garantir consistência de horários no Notion e nos jobs de cron.

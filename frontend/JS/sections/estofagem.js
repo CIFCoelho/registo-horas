@@ -423,7 +423,21 @@
               scheduleSync();
               return;
             }
-            if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) {
+
+            // Provide user-friendly error messages
+            var errorMsg = 'Erro ao enviar';
+            if (xhr.status === 503) {
+              errorMsg = 'Sistema a iniciar, aguarde...';
+            } else if (xhr.status === 0) {
+              errorMsg = 'Sem ligação. Guardado para envio automático.';
+            } else if (xhr.status >= 500) {
+              errorMsg = 'Erro no servidor. Guardado para reenvio.';
+            } else if (xhr.status === 429) {
+              errorMsg = 'Muitos pedidos. A reenviar...';
+            }
+
+            // Queue for retry on network/5xx/429/503
+            if (xhr.status === 0 || xhr.status === 429 || xhr.status === 503 || xhr.status >= 500) {
               enqueueRequest(data);
               if (typeof opts.onSettled === 'function') opts.onSettled(false, true);
               scheduleSync();

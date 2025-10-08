@@ -386,14 +386,19 @@ async function createShiftStart(dbId, data) {
   }
 }
 
-async function findOpenShiftPage(dbId, funcionario) {
+async function findOpenShiftPage(dbId, funcionario, ofNumber) {
+  const filters = [
+    { property: 'Funcionário', title: { equals: funcionario } },
+    { property: 'Final do Turno', date: { is_empty: true } }
+  ];
+
+  // If OF number provided, filter by it to avoid closing wrong shift
+  if (ofNumber !== null && ofNumber !== undefined) {
+    filters.push({ property: 'Ordem de Fabrico', number: { equals: Number(ofNumber) } });
+  }
+
   const query = {
-    filter: {
-      and: [
-        { property: 'Funcionário', title: { equals: funcionario } },
-        { property: 'Final do Turno', date: { is_empty: true } }
-      ]
-    },
+    filter: { and: filters },
     sorts: [{ property: 'Início do Turno', direction: 'descending' }],
     page_size: 1
   };
@@ -408,7 +413,11 @@ async function findOpenShiftPage(dbId, funcionario) {
     throw new Error(`Notion query failed (${resp.status}): ${text}`);
   }
   const json = await resp.json();
-  if (!json.results || !json.results.length) throw new Error('Nenhum turno aberto encontrado');
+  if (!json.results || !json.results.length) {
+    const ofMsg = ofNumber ? ` para OF ${ofNumber}` : '';
+    console.warn(`⚠️  Nenhum turno aberto encontrado para ${funcionario}${ofMsg}`);
+    throw new Error('Nenhum turno aberto encontrado');
+  }
 
   return json.results[0];
 }
@@ -445,7 +454,9 @@ function computeBreakAdjustment(startDate, requestedEndDate) {
 }
 
 async function closeShiftEntry(dbId, data) {
-  const page = await findOpenShiftPage(dbId, data.funcionario);
+  // Pass OF number to ensure we close the correct shift (prevents race condition)
+  const ofNumber = data.of !== null && data.of !== undefined ? Number(data.of) : null;
+  const page = await findOpenShiftPage(dbId, data.funcionario, ofNumber);
   const requestedEndISO = hhmmToTodayISO(data.hora);
   const requestedEndDate = new Date(requestedEndISO);
 
@@ -476,7 +487,9 @@ async function closeShiftEntry(dbId, data) {
 
 async function cancelShiftEntry(dbId, data) {
   const endISO = hhmmToTodayISO(data.hora);
-  const page = await findOpenShiftPage(dbId, data.funcionario);
+  // Pass OF number to ensure we cancel the correct shift
+  const ofNumber = data.of !== null && data.of !== undefined ? Number(data.of) : null;
+  const page = await findOpenShiftPage(dbId, data.funcionario, ofNumber);
 
   const payload = {
     properties: {
@@ -500,7 +513,9 @@ async function cancelShiftEntry(dbId, data) {
 
 async function registerPinturaQuantities(dbId, data) {
   if (!dbId) throw new Error('DB não configurada');
-  const page = await findOpenShiftPage(dbId, data.funcionario);
+  // Pass OF to ensure we register quantities on the correct shift
+  const ofNumber = data.of !== null && data.of !== undefined ? Number(data.of) : null;
+  const page = await findOpenShiftPage(dbId, data.funcionario, ofNumber);
 
   const isolante = Number(data.isolante) || 0;
   const tapaPoros = Number(data.tapaPoros) || 0;
@@ -561,7 +576,8 @@ async function finishIncompleteEntry(dbId, data) {
     throw new Error('Escolha outro colaborador');
   }
 
-  const page = await findOpenShiftPage(dbId, data.funcionario);
+  // Don't pass OF filter here - we want the most recent open shift regardless of OF
+  const page = await findOpenShiftPage(dbId, data.funcionario, null);
 
   const startProp = page.properties?.['Início do Turno']?.date?.start;
   if (!startProp) throw new Error('Início do Turno não encontrado');
@@ -635,6 +651,18 @@ function isWithinWorkWindow(now = new Date()) {
   return true;
 }
 
+// Check if we're in the critical morning window (7:50-8:15)
+function isInMorningRush(now = new Date()) {
+  const dow = now.getDay();
+  if (dow === 0 || dow === 6) return false;
+  const h = now.getHours();
+  const m = now.getMinutes();
+  // Between 7:50 and 8:15 on weekdays
+  if (h === 7 && m >= 50) return true;
+  if (h === 8 && m <= 15) return true;
+  return false;
+}
+
 async function keepAlivePing() {
   if (!KEEPALIVE_ENABLED) return;
   if (!isWithinWorkWindow()) return;
@@ -647,11 +675,23 @@ async function keepAlivePing() {
   }
 }
 
-// Ping every 5 minutes within 07:30–17:30, Mon–Fri
+// Standard ping: every 5 minutes within 07:30–17:30, Mon–Fri
 cron.schedule(
   '*/5 7-17 * * 1-5',
   async () => {
     try { await keepAlivePing(); } catch (_) {}
+  },
+  { timezone: 'Europe/Lisbon' }
+);
+
+// Aggressive morning ping: every 3 minutes from 7:50-8:15 to ensure service is warm
+// Note: This internal cron helps but external keep-alive (UptimeRobot) is still recommended
+cron.schedule(
+  '*/3 7-8 * * 1-5',
+  async () => {
+    if (isInMorningRush()) {
+      try { await keepAlivePing(); } catch (_) {}
+    }
   },
   { timezone: 'Europe/Lisbon' }
 );
