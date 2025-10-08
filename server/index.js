@@ -43,6 +43,15 @@ const ESTOFAGEM_REGISTOS_PROPS = {
   tp: process.env.ESTOFAGEM_REGISTOS_TP_PROP || 'TP:'
 };
 
+// Property name aliases for flexible matching (handles workspace migration variations)
+const PROPERTY_ALIASES = {
+  funcionario: ['Funcionário', 'Colaborador', 'funcionario', 'colaborador'],
+  of: ['Ordem de Fabrico', 'OF', 'Ordem De Fabrico', 'ordem de fabrico'],
+  inicioTurno: ['Início do Turno', 'Inicio do Turno', 'Início Do Turno', 'Inicio Do Turno', 'inicio do turno'],
+  finalTurno: ['Final do Turno', 'Fim do Turno', 'Final Do Turno', 'Fim Do Turno', 'final do turno', 'fim do turno'],
+  notas: ['Notas do Sistema', 'Notas Do Sistema', 'notas do sistema', 'Notas']
+};
+
 const PINTURA_PROP_ALIASES = {
   isolante: [PINTURA_ISOLANTE_PROP, 'Isolante Aplicado (Nº)', 'Isolante Aplicado Nº'],
   tapaPoros: [PINTURA_TAPA_PROP, 'Tapa-Poros Aplicado Nº', 'Tapa Poros Aplicado (Nº)', 'Tapa poros aplicado'],
@@ -387,39 +396,60 @@ async function createShiftStart(dbId, data) {
 }
 
 async function findOpenShiftPage(dbId, funcionario, ofNumber) {
-  const filters = [
-    { property: 'Funcionário', title: { equals: funcionario } },
-    { property: 'Final do Turno', date: { is_empty: true } }
-  ];
+  // Try multiple property name variations (handles workspace migration)
+  const funcionarioVariations = PROPERTY_ALIASES.funcionario;
+  const finalTurnoVariations = PROPERTY_ALIASES.finalTurno;
+  const inicioTurnoVariations = PROPERTY_ALIASES.inicioTurno;
+  const ofVariations = PROPERTY_ALIASES.of;
 
-  // If OF number provided, filter by it to avoid closing wrong shift
-  if (ofNumber !== null && ofNumber !== undefined) {
-    filters.push({ property: 'Ordem de Fabrico', number: { equals: Number(ofNumber) } });
+  // Try each combination until one works
+  for (const funcProp of funcionarioVariations) {
+    for (const finalProp of finalTurnoVariations) {
+      for (const inicioProp of inicioTurnoVariations) {
+        for (const ofProp of ofVariations) {
+          try {
+            const filters = [
+              { property: funcProp, title: { equals: funcionario } },
+              { property: finalProp, date: { is_empty: true } }
+            ];
+
+            // If OF number provided, filter by it to avoid closing wrong shift
+            if (ofNumber !== null && ofNumber !== undefined) {
+              filters.push({ property: ofProp, number: { equals: Number(ofNumber) } });
+            }
+
+            const query = {
+              filter: { and: filters },
+              sorts: [{ property: inicioProp, direction: 'descending' }],
+              page_size: 1
+            };
+
+            const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(query)
+            });
+
+            if (resp.ok) {
+              const json = await resp.json();
+              if (json.results && json.results.length) {
+                console.log(`✓ Found shift using properties: Funcionário="${funcProp}", Final="${finalProp}"`);
+                return json.results[0];
+              }
+            }
+          } catch (e) {
+            // Try next variation
+            continue;
+          }
+        }
+      }
+    }
   }
 
-  const query = {
-    filter: { and: filters },
-    sorts: [{ property: 'Início do Turno', direction: 'descending' }],
-    page_size: 1
-  };
-
-  const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(query)
-  });
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Notion query failed (${resp.status}): ${text}`);
-  }
-  const json = await resp.json();
-  if (!json.results || !json.results.length) {
-    const ofMsg = ofNumber ? ` para OF ${ofNumber}` : '';
-    console.warn(`⚠️  Nenhum turno aberto encontrado para ${funcionario}${ofMsg}`);
-    throw new Error('Nenhum turno aberto encontrado');
-  }
-
-  return json.results[0];
+  const ofMsg = ofNumber ? ` para OF ${ofNumber}` : '';
+  console.warn(`⚠️  Nenhum turno aberto encontrado para ${funcionario}${ofMsg}`);
+  console.warn(`   Tentei todas as variações de propriedades: ${funcionarioVariations.join(', ')}`);
+  throw new Error('Nenhum turno aberto encontrado');
 }
 
 function combineNotes(existingRichText, message) {
@@ -460,19 +490,26 @@ async function closeShiftEntry(dbId, data) {
   const requestedEndISO = hhmmToTodayISO(data.hora);
   const requestedEndDate = new Date(requestedEndISO);
 
-  const startProp = page.properties?.['Início do Turno']?.date?.start;
+  // Flexible property name resolution (handles workspace migration)
+  const inicioTurnoProp = resolveProperty(page, 'inicioTurno');
+  const finalTurnoProp = resolveProperty(page, 'finalTurno');
+  const notasProp = resolveProperty(page, 'notas');
+
+  const startProp = page.properties?.[inicioTurnoProp]?.date?.start;
   const startDate = startProp ? new Date(startProp) : null;
 
   const adjustment = computeBreakAdjustment(startDate, requestedEndDate);
 
   const properties = {
-    'Final do Turno': { date: { start: adjustment.endDate.toISOString() } }
+    [finalTurnoProp]: { date: { start: adjustment.endDate.toISOString() } }
   };
 
   if (adjustment.note) {
-    const combinedNotes = combineNotes(page.properties?.['Notas do Sistema']?.rich_text, adjustment.note);
-    properties['Notas do Sistema'] = { rich_text: [{ text: { content: combinedNotes } }] };
+    const combinedNotes = combineNotes(page.properties?.[notasProp]?.rich_text, adjustment.note);
+    properties[notasProp] = { rich_text: [{ text: { content: combinedNotes } }] };
   }
+
+  console.log(`📝 Closing shift for ${data.funcionario} using properties: Início=${inicioTurnoProp}, Final=${finalTurnoProp}`);
 
   const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
@@ -491,14 +528,20 @@ async function cancelShiftEntry(dbId, data) {
   const ofNumber = data.of !== null && data.of !== undefined ? Number(data.of) : null;
   const page = await findOpenShiftPage(dbId, data.funcionario, ofNumber);
 
+  // Flexible property name resolution
+  const finalTurnoProp = resolveProperty(page, 'finalTurno');
+  const notasProp = resolveProperty(page, 'notas');
+
   const payload = {
     properties: {
-      'Final do Turno': { date: { start: endISO } },
-      'Notas do Sistema': {
+      [finalTurnoProp]: { date: { start: endISO } },
+      [notasProp]: {
         rich_text: [{ text: { content: 'Turno cancelado manualmente' } }]
       }
     }
   };
+
+  console.log(`🚫 Cancelling shift for ${data.funcionario} using property: Final=${finalTurnoProp}`);
 
   const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
@@ -568,6 +611,33 @@ function normalizeKey(str) {
     .replace(/[^a-z0-9]/g, '');
 }
 
+// Flexible property name resolver - tries multiple variations
+function resolveProperty(page, aliasKey) {
+  const candidates = PROPERTY_ALIASES[aliasKey] || [];
+  if (!candidates.length) {
+    console.warn(`⚠️  No aliases defined for key: ${aliasKey}`);
+    return null;
+  }
+
+  const props = page?.properties || {};
+  const lookup = {};
+  Object.keys(props).forEach((name) => {
+    lookup[normalizeKey(name)] = name;
+  });
+
+  for (const candidate of candidates) {
+    const actual = lookup[normalizeKey(candidate)];
+    if (actual) {
+      return actual;
+    }
+  }
+
+  console.warn(`⚠️  Property not found. Tried: ${candidates.join(', ')}`);
+  console.warn(`   Available: ${Object.keys(props).join(', ')}`);
+  // Return first candidate as fallback
+  return candidates[0];
+}
+
 async function finishIncompleteEntry(dbId, data) {
   if (!data.tipo || !data.iniciou || typeof data.minutosRestantes === 'undefined') {
     throw new Error('Dados incompletos');
@@ -579,7 +649,11 @@ async function finishIncompleteEntry(dbId, data) {
   // Don't pass OF filter here - we want the most recent open shift regardless of OF
   const page = await findOpenShiftPage(dbId, data.funcionario, null);
 
-  const startProp = page.properties?.['Início do Turno']?.date?.start;
+  // Flexible property name resolution
+  const inicioTurnoProp = resolveProperty(page, 'inicioTurno');
+  const notasProp = resolveProperty(page, 'notas');
+
+  const startProp = page.properties?.[inicioTurnoProp]?.date?.start;
   if (!startProp) throw new Error('Início do Turno não encontrado');
   const startDate = new Date(startProp);
   const minutes = Math.max(0, Number(data.minutosRestantes) || 0);
@@ -587,12 +661,12 @@ async function finishIncompleteEntry(dbId, data) {
 
   const tipo = String(data.tipo).trim();
   const newNote = `Terminou ${tipo} iniciado por ${data.iniciou} durante ${minutes} min`;
-  const combinedNotes = combineNotes(page.properties?.['Notas do Sistema']?.rich_text, newNote);
+  const combinedNotes = combineNotes(page.properties?.[notasProp]?.rich_text, newNote);
 
   const payload = {
     properties: {
-      'Início do Turno': { date: { start: adjustedStartISO } },
-      'Notas do Sistema': { rich_text: [{ text: { content: combinedNotes } }] }
+      [inicioTurnoProp]: { date: { start: adjustedStartISO } },
+      [notasProp]: { rich_text: [{ text: { content: combinedNotes } }] }
     }
   };
 
