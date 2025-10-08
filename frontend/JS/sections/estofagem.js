@@ -326,52 +326,47 @@
       var wasSwitching = switchingOF && !!previousOF;
       closeKeypad();
 
-      function applyStartUI() {
-        activeSessions[name] = String(ofValue);
-        persistActiveSessions();
-        updateCardState(name);
-        setStatus('Turno iniciado para ' + name + ' na OF ' + ofValue + '.', '#026042');
-      }
+      // OPTIMISTIC UI UPDATE - apply immediately for instant feedback
+      activeSessions[name] = String(ofValue);
+      persistActiveSessions();
+      updateCardState(name);
+      setStatus('Turno iniciado para ' + name + ' na OF ' + ofValue + '.', '#026042');
 
-      function sendStartPayload() {
-        var payload = {
-          acao: 'start',
-          funcionario: name,
-          of: ofValue,
-          hora: formatHHMM(new Date())
-        };
+      // Send requests asynchronously (don't block UI)
+      var currentTime = new Date();
+      var hora = formatHHMM(currentTime);
 
-        sendAction(payload, {
-          onError: function () {
-            setStatus('Falha ao registar início para ' + name + '.', 'red');
-          }
-        });
-
-        applyStartUI();
-      }
-
-      if (wasSwitching) {
+      if (wasSwitching && previousOF) {
+        // Send END for old OF (async, non-blocking)
         var endPayload = {
           acao: 'end',
           funcionario: name,
           of: previousOF,
-          hora: formatHHMM(new Date())
+          hora: hora
         };
-
         sendAction(endPayload, {
           acceptStatuses: [400],
-          onSettled: function (success, queued) {
-            if (!success && !queued) {
-              setStatus('Erro ao terminar turno atual. Tente novamente.', 'red');
-              scheduleSync(1500);
-              return;
-            }
-            sendStartPayload();
+          onError: function () {
+            console.log('⚠️ Erro ao fechar OF anterior (ignorado, será corrigido no sync)');
           }
         });
-      } else {
-        sendStartPayload();
       }
+
+      // Send START for new OF (async, non-blocking)
+      var startPayload = {
+        acao: 'start',
+        funcionario: name,
+        of: ofValue,
+        hora: hora
+      };
+      sendAction(startPayload, {
+        onError: function () {
+          console.log('⚠️ Erro ao iniciar nova OF (enfileirado para reenvio)');
+        }
+      });
+
+      // Note: Backend now handles race conditions via OF-specific filtering.
+      // GET /open sync (every 2min) will correct any drift.
     }
 
     function endShift(name) {
@@ -379,26 +374,28 @@
 
       var ofValue = activeSessions[name];
       showConfirmDialog('Terminar turno de ' + name + '?', function () {
-        var now = new Date();
-        var payload = {
-          acao: 'end',
-          funcionario: name,
-          of: ofValue,
-          hora: formatHHMM(now)
-        };
-
+        // OPTIMISTIC UI UPDATE - apply immediately
         delete activeSessions[name];
         persistActiveSessions();
         updateCardState(name);
         setStatus('Turno terminado para ' + name + '.', '#026042');
 
+        // Send END request asynchronously (don't block UI)
+        var payload = {
+          acao: 'end',
+          funcionario: name,
+          of: ofValue,
+          hora: formatHHMM(new Date())
+        };
+
         sendAction(payload, {
           acceptStatuses: [400],
-          successMessage: 'Fim registado para ' + name + '.',
           onError: function () {
-            setStatus('Falha ao registar término para ' + name + '.', 'red');
+            console.log('⚠️ Erro ao registar término (enfileirado para reenvio)');
           }
         });
+
+        // Note: GET /open sync will correct any drift if request fails
       });
     }
 

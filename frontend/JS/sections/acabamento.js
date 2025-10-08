@@ -525,55 +525,50 @@ document.addEventListener('DOMContentLoaded', function () {
       resetKeypadState();
     }
 
-    function sendStartPayload() {
-      var startHora = formatHHMM(new Date());
-      var startPayload = {
-        funcionario: name,
-        of: newOF,
-        acao: 'start',
-        hora: startHora
-      };
-      console.log('📤 Enviar início da OF:', startPayload);
-      var accepted = sendPayload(startPayload, config.webAppUrl, {
-        lockKey: 'start:' + name,
-        queueKey: 'start:' + name + ':' + String(newOF || ''),
-        onDuplicate: function () {
-          setStatus('Pedido de início já em processamento para ' + name + '.', 'orange');
-        }
-      });
-      if (!accepted) return;
-      applyStartUI();
-    }
+    // OPTIMISTIC UI UPDATE - apply immediately for instant feedback
+    applyStartUI();
+
+    // Send requests asynchronously (don't block UI)
+    var currentTime = new Date();
+    var hora = formatHHMM(currentTime);
 
     if (isSwitchingOF && previousOF) {
-      var endHora = formatHHMM(new Date());
+      // Send END for old OF (async, non-blocking)
       var endPayload = {
         funcionario: name,
         of: previousOF,
         acao: 'end',
-        hora: endHora
+        hora: hora
       };
-      console.log('📤 Enviar fim da OF anterior:', endPayload);
-      var endAccepted = sendPayload(endPayload, config.webAppUrl, {
+      console.log('📤 Enviar fim da OF anterior (async):', endPayload);
+      sendPayload(endPayload, config.webAppUrl, {
         acceptStatuses: [400],
         lockKey: 'end:' + name,
         queueKey: 'end:' + name + ':' + String(previousOF || ''),
         onDuplicate: function () {
-          setStatus('Pedido de fecho já em processamento para ' + name + '.', 'orange');
-        },
-        onSettled: function (success, queued) {
-          if (!success && !queued) {
-            setStatus('Erro ao terminar turno atual. Tente novamente.', 'red');
-            resetKeypadState();
-            return;
-          }
-          sendStartPayload();
+          console.log('⚠️ Pedido de fecho duplicado (ignorado)');
         }
       });
-      if (!endAccepted) return;
-    } else {
-      sendStartPayload();
     }
+
+    // Send START for new OF (async, non-blocking)
+    var startPayload = {
+      funcionario: name,
+      of: newOF,
+      acao: 'start',
+      hora: hora
+    };
+    console.log('📤 Enviar início da OF (async):', startPayload);
+    sendPayload(startPayload, config.webAppUrl, {
+      lockKey: 'start:' + name,
+      queueKey: 'start:' + name + ':' + String(newOF || ''),
+      onDuplicate: function () {
+        console.log('⚠️ Pedido de início duplicado (ignorado)');
+      }
+    });
+
+    // Note: Backend now handles race conditions via OF-specific filtering.
+    // GET /open sync (every 2min) will correct any drift.
   }
 
   function endShift(name, btn) {
@@ -591,34 +586,34 @@ document.addEventListener('DOMContentLoaded', function () {
       var confirmBtn = document.createElement('button');
       confirmBtn.textContent = 'Terminar';
       confirmBtn.onclick = function () {
-        var now = new Date();
-        var hora = formatHHMM(now);
-
         var currentOfValue = activeSessions[name];
-        var payload = {
-          funcionario: name,
-          of: currentOfValue,
-          acao: 'end',
-          hora: hora
-        };
 
-        var accepted = sendPayload(payload, config.webAppUrl, {
-          lockKey: 'end:' + name,
-          queueKey: 'end:' + name + ':' + String(currentOfValue || ''),
-          onDuplicate: function () {
-            setStatus('Pedido de fecho já em processamento para ' + name + '.', 'orange');
-          }
-        });
-        if (!accepted) return;
-
+        // OPTIMISTIC UI UPDATE - apply immediately
         delete activeSessions[name];
         persistActiveSessions();
         btn.classList.remove('active');
         btn.querySelector('.of-display').textContent = '+';
         actionButtons[name].style.display = 'none';
-
         setStatus('Turno fechado: ' + name, 'orange');
         closeModal();
+
+        // Send END request asynchronously (don't block UI)
+        var payload = {
+          funcionario: name,
+          of: currentOfValue,
+          acao: 'end',
+          hora: formatHHMM(new Date())
+        };
+
+        sendPayload(payload, config.webAppUrl, {
+          lockKey: 'end:' + name,
+          queueKey: 'end:' + name + ':' + String(currentOfValue || ''),
+          onDuplicate: function () {
+            console.log('⚠️ Pedido de fecho duplicado (ignorado)');
+          }
+        });
+
+        // Note: GET /open sync will correct any drift if request fails
       };
       modal.appendChild(confirmBtn);
 
@@ -760,29 +755,34 @@ document.addEventListener('DOMContentLoaded', function () {
       setStatus('Sem turno para cancelar', 'red');
       return;
     }
-    var now = new Date();
-    var hora = formatHHMM(now);
+
     var currentOfValue = activeSessions[name];
-    var payload = {
-      funcionario: name,
-      of: currentOfValue,
-      acao: 'cancel',
-      hora: hora
-    };
-    var accepted = sendPayload(payload, config.webAppUrl, {
-      lockKey: 'cancel:' + name,
-      queueKey: 'cancel:' + name + ':' + String(currentOfValue || ''),
-      onDuplicate: function () {
-        setStatus('Pedido de cancelamento já em processamento para ' + name + '.', 'orange');
-      }
-    });
-    if (!accepted) return;
+
+    // OPTIMISTIC UI UPDATE - apply immediately
     delete activeSessions[name];
     persistActiveSessions();
     btn.classList.remove('active');
     btn.querySelector('.of-display').textContent = '+';
     actionButtons[name].style.display = 'none';
     setStatus('Turno cancelado: ' + name, 'orange');
+
+    // Send CANCEL request asynchronously (don't block UI)
+    var payload = {
+      funcionario: name,
+      of: currentOfValue,
+      acao: 'cancel',
+      hora: formatHHMM(new Date())
+    };
+
+    sendPayload(payload, config.webAppUrl, {
+      lockKey: 'cancel:' + name,
+      queueKey: 'cancel:' + name + ':' + String(currentOfValue || ''),
+      onDuplicate: function () {
+        console.log('⚠️ Pedido de cancelamento duplicado (ignorado)');
+      }
+    });
+
+    // Note: GET /open sync will correct any drift if request fails
   }
 
   function openModal(builder) {
