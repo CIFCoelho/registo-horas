@@ -298,7 +298,7 @@
     function applySessionsToUI(serverMap) {
       var changed = false;
       for (var localName in activeSessions) {
-        if (!serverMap[localName]) {
+        if (!serverMap.hasOwnProperty(localName)) {
           delete activeSessions[localName];
           changed = true;
         }
@@ -317,7 +317,8 @@
         if (!card) continue;
         var ofDisplay = ofDisplayMap[n];
         var menuBtn = actionButtons[n];
-        if (activeSessions[n]) {
+        var isActive = activeSessions.hasOwnProperty(n);
+        if (isActive) {
           card.classList.add('active');
           if (ofDisplay) ofDisplay.textContent = formatOFDisplay(activeSessions[n]);
           if (menuBtn) menuBtn.style.display = 'inline-block';
@@ -330,10 +331,14 @@
       }
     }
 
-    function syncOpenSessions() {
+    var syncRetries = 0;
+    var MAX_SYNC_RETRIES = 3;
+
+    function syncOpenSessions(onComplete) {
       try {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', getOpenEndpoint(), true);
+        xhr.timeout = 8000; // 8 second timeout
         xhr.onreadystatechange = function () {
           if (xhr.readyState === 4) {
             if (xhr.status >= 200 && xhr.status < 300) {
@@ -344,21 +349,71 @@
                   for (var i = 0; i < resp.sessions.length; i++) {
                     var session = resp.sessions[i];
                     if (session && session.funcionario) {
-                      map[session.funcionario] = session.of ? String(session.of) : '';
+                      // Preserve OF=0 (general work) and all valid numbers
+                      var ofValue = session.of !== null && session.of !== undefined ? String(session.of) : '';
+                      map[session.funcionario] = ofValue;
                     }
                   }
                   applySessionsToUI(map);
+                  console.log('[' + (config.section || 'ShiftBasic') + '] Sincronizados ' + resp.sessions.length + ' turnos ativos:', map);
+                  syncRetries = 0; // Reset retry counter on success
+                  if (typeof onComplete === 'function') onComplete(true);
+                  return;
                 }
-              } catch (_) {}
+              } catch (e) {
+                console.warn('[' + (config.section || 'ShiftBasic') + '] Erro ao parsear resposta de /open:', e);
+              }
+            } else if (xhr.status !== 0) {
+              console.warn('[' + (config.section || 'ShiftBasic') + '] Erro ao sincronizar turnos abertos:', xhr.status);
+            }
+            // Retry on failure during initial load
+            if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+              syncRetries++;
+              console.log('[' + (config.section || 'ShiftBasic') + '] Retry sincronização (' + syncRetries + '/' + MAX_SYNC_RETRIES + ')...');
+              setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+            } else if (typeof onComplete === 'function') {
+              onComplete(false);
             }
           }
         };
+        xhr.ontimeout = function () {
+          console.warn('[' + (config.section || 'ShiftBasic') + '] Timeout ao sincronizar turnos abertos');
+          if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+            syncRetries++;
+            setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+          } else if (typeof onComplete === 'function') {
+            onComplete(false);
+          }
+        };
+        xhr.onerror = function () {
+          console.warn('[' + (config.section || 'ShiftBasic') + '] Erro de rede ao sincronizar turnos abertos');
+          if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+            syncRetries++;
+            setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+          } else if (typeof onComplete === 'function') {
+            onComplete(false);
+          }
+        };
         xhr.send();
-      } catch (_) {}
+      } catch (e) {
+        console.error('[' + (config.section || 'ShiftBasic') + '] Exceção ao sincronizar:', e);
+        if (typeof onComplete === 'function') onComplete(false);
+      }
     }
 
-    setTimeout(syncOpenSessions, 1500);
-    setInterval(syncOpenSessions, 120000);
+    // Initial sync - immediate with retry, shows loading state
+    setStatus('A carregar turnos ativos...', '#4d4d4d');
+    syncOpenSessions(function(success) {
+      if (success) {
+        setStatus('Sincronizado com sucesso.', '#026042');
+        setTimeout(function() { setStatus('', ''); }, 3000);
+      } else {
+        setStatus('Aviso: Falha ao carregar turnos. A retentar...', 'orange');
+      }
+    });
+
+    // Periodic sync every 2 minutes
+    setInterval(function() { syncOpenSessions(); }, 120000);
 
     // --- UI construction -------------------------------------------------
 
@@ -405,13 +460,13 @@
 
       ofDisplay.onclick = function (event) {
         event.stopPropagation();
-        if (activeSessions[name]) {
+        if (activeSessions.hasOwnProperty(name)) {
           handleOFChange(name, card);
         }
       };
 
       card.onclick = function () {
-        if (!activeSessions[name]) {
+        if (!activeSessions.hasOwnProperty(name)) {
           handleEmployeeClick(name, card);
         } else {
           endShift(name, card);
@@ -448,7 +503,7 @@
         }
       }
 
-      if (activeSessions[name]) {
+      if (activeSessions.hasOwnProperty(name)) {
         card.classList.add('active');
         ofDisplay.textContent = formatOFDisplay(activeSessions[name]);
         if (menuBtn) menuBtn.style.display = 'inline-block';
@@ -550,7 +605,23 @@
     function sendAction(card, isSwitchingOF) {
       var name = activeEmployee;
       var newOF = currentOF;
-      var previousOF = activeSessions[name];
+      var hasActiveShift = activeSessions.hasOwnProperty(name);
+      var previousOF = hasActiveShift ? activeSessions[name] : '';
+
+      // Prevent duplicate shift creation
+      if (!isSwitchingOF && hasActiveShift) {
+        setStatus('Já tem turno ativo. Use o círculo da OF para trocar.', 'orange');
+        resetKeypadState();
+        return;
+      }
+
+      // Prevent switching to same OF
+      if (isSwitchingOF && String(previousOF) === String(newOF)) {
+        var msg = newOF === '0' ? 'Já está em trabalho geral.' : 'Já está nessa OF.';
+        setStatus(msg, 'red');
+        resetKeypadState();
+        return;
+      }
 
       // OPTIMISTIC UI UPDATE - apply immediately for instant feedback
       activeSessions[name] = newOF;
@@ -570,7 +641,7 @@
       var currentTime = new Date();
       var hora = formatHHMM(currentTime);
 
-      if (isSwitchingOF && previousOF) {
+      if (isSwitchingOF && hasActiveShift) {
         // Send END for old OF (async, non-blocking)
         var endPayload = {
           funcionario: name,
@@ -608,6 +679,11 @@
     }
 
     function endShift(name, card) {
+      if (!activeSessions.hasOwnProperty(name)) {
+        setStatus('Nenhum turno ativo para terminar.', 'orange');
+        return;
+      }
+
       openModal(function (modal) {
         var title = document.createElement('h3');
         title.textContent = 'Terminar Turno?';
@@ -615,7 +691,8 @@
 
         var info = document.createElement('div');
         var ofNum = activeSessions[name];
-        info.textContent = 'Terminar turno de ' + name + (ofNum ? ' da OF ' + ofNum : '') + '?';
+        var displayOF = ofNum ? ' da OF ' + formatOFDisplay(ofNum) : '';
+        info.textContent = 'Terminar turno de ' + name + displayOF + '?';
         modal.appendChild(info);
 
         var confirmBtn = document.createElement('button');
@@ -667,7 +744,7 @@
     }
 
     function cancelCurrentShift(name, card) {
-      if (!activeSessions[name]) {
+      if (!activeSessions.hasOwnProperty(name)) {
         setStatus('Sem turno para cancelar', 'red');
         return;
       }
