@@ -187,6 +187,26 @@ Config do frontend (Estofagem):
 
 ---
 
+## 🔍 Análise de Problemas e Melhorias
+
+📄 **[Análise Profunda - 44 Problemas Identificados](docs/ANALISE_PROBLEMAS.md)**
+
+Documento técnico completo com:
+- 8 problemas CRÍTICOS (perda de dados, race conditions, performance)
+- 13 problemas ALTOS (funcionalidade, segurança, duplicação de código)
+- 12 problemas MÉDIOS (UX, memory leaks, validações)
+- 11 problemas BAIXOS (polimentos, edge cases)
+
+Inclui:
+- Localização exata (file:line) de cada problema
+- Código de solução detalhado
+- Plano de implementação em sprints priorizados
+- Cenários de teste críticos
+
+**Última atualização**: 9 Outubro 2025
+
+---
+
 ## 🔒 Autenticação futura
 
 - O dashboard será protegido por autenticação (a definir)
