@@ -42,7 +42,7 @@
       // Display "Geral" for OF=0 (general work)
       if (ofValue === '0' || ofValue === 0) return 'Geral';
       // Handle empty/null values
-      if (!ofValue && ofValue !== 0) return '---';
+      if (!ofValue && ofValue !== 0) return 'GERAL';
       return String(ofValue);
     }
 
