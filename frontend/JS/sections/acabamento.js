@@ -227,13 +227,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     ofDisplay.onclick = function (e) {
       e.stopPropagation();
-      if (activeSessions[name]) {
+      if (activeSessions.hasOwnProperty(name)) {
         handleOFChange(name, btn);
       }
     };
 
     btn.onclick = function () {
-      if (!activeSessions[name]) {
+      if (!activeSessions.hasOwnProperty(name)) {
         handleEmployeeClick(name, btn);
       } else {
         endShift(name, btn);
@@ -242,7 +242,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     employeeList.appendChild(row);
 
-    if (activeSessions[name]) {
+    if (activeSessions.hasOwnProperty(name)) {
       btn.classList.add('active');
       ofDisplay.textContent = formatOFDisplay(activeSessions[name]);
       actionBtn.style.display = 'inline-block';
@@ -347,7 +347,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var changed = false;
     // Remove local sessions not present on server
     for (var localName in activeSessions) {
-      if (!serverMap[localName]) {
+      if (!serverMap.hasOwnProperty(localName)) {
         delete activeSessions[localName];
         changed = true;
       }
@@ -368,7 +368,8 @@ document.addEventListener('DOMContentLoaded', function () {
       var ofDisplay = btn && btn.querySelector('.of-display');
       var actionBtn = actionButtons[n];
       if (!btn || !ofDisplay || !actionBtn) continue;
-      if (activeSessions[n]) {
+      var isActive = activeSessions.hasOwnProperty(n);
+      if (isActive) {
         btn.classList.add('active');
         ofDisplay.textContent = formatOFDisplay(activeSessions[n]);
         actionBtn.style.display = 'inline-block';
@@ -380,10 +381,14 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  function syncOpenSessions() {
+  var syncRetries = 0;
+  var MAX_SYNC_RETRIES = 3;
+
+  function syncOpenSessions(onComplete) {
     try {
       var xhr = new XMLHttpRequest();
       xhr.open('GET', getOpenEndpoint(), true);
+      xhr.timeout = 8000; // 8 second timeout
       xhr.onreadystatechange = function () {
         if (xhr.readyState === 4) {
           if (xhr.status >= 200 && xhr.status < 300) {
@@ -394,25 +399,72 @@ document.addEventListener('DOMContentLoaded', function () {
                 for (var i = 0; i < resp.sessions.length; i++) {
                   var s = resp.sessions[i];
                   if (s && s.funcionario) {
-                    map[s.funcionario] = s.of ? String(s.of) : '';
+                    // Preserve OF=0 (general work) and all valid numbers
+                    var ofValue = s.of !== null && s.of !== undefined ? String(s.of) : '';
+                    map[s.funcionario] = ofValue;
                   }
                 }
                 applySessionsToUI(map);
+                console.log('[Acabamento] Sincronizados ' + resp.sessions.length + ' turnos ativos:', map);
+                syncRetries = 0; // Reset retry counter on success
+                if (typeof onComplete === 'function') onComplete(true);
+                return;
               }
-            } catch (e) { /* ignore parse errors */ }
-          } else {
-            // ignore network/cors errors silently; UI remains usable offline
+            } catch (e) {
+              console.warn('[Acabamento] Erro ao parsear resposta de /open:', e);
+            }
+          } else if (xhr.status !== 0) {
+            console.warn('[Acabamento] Erro ao sincronizar turnos abertos:', xhr.status);
+          }
+          // Retry on failure during initial load
+          if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+            syncRetries++;
+            console.log('[Acabamento] Retry sincronização (' + syncRetries + '/' + MAX_SYNC_RETRIES + ')...');
+            setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+          } else if (typeof onComplete === 'function') {
+            onComplete(false);
           }
         }
       };
+      xhr.ontimeout = function () {
+        console.warn('[Acabamento] Timeout ao sincronizar turnos abertos');
+        if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+          syncRetries++;
+          setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+        } else if (typeof onComplete === 'function') {
+          onComplete(false);
+        }
+      };
+      xhr.onerror = function () {
+        console.warn('[Acabamento] Erro de rede ao sincronizar turnos abertos');
+        if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+          syncRetries++;
+          setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+        } else if (typeof onComplete === 'function') {
+          onComplete(false);
+        }
+      };
       xhr.send();
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      console.error('[Acabamento] Exceção ao sincronizar:', e);
+      if (typeof onComplete === 'function') onComplete(false);
+    }
   }
 
-  // Initial sync after load, then periodic to catch remote updates.
-  // Use a conservative interval to avoid hammering the backend.
-  setTimeout(syncOpenSessions, 1500);
-  setInterval(syncOpenSessions, 120000); // every 2 min
+  // Initial sync - immediate with retry, shows loading state
+  setStatus('A carregar turnos ativos...', '#4d4d4d');
+  syncOpenSessions(function(success) {
+    if (success) {
+      setStatus('Sincronizado com sucesso.', '#026042');
+      setTimeout(function() { setStatus('', ''); }, 3000);
+    } else {
+      setStatus('Aviso: Falha ao carregar turnos. A retentar...', 'orange');
+    }
+  });
+
+  // Periodic sync every 2 minutes
+  setInterval(function() { syncOpenSessions(); }, 120000);
+
   // Also resync when returning to the page (after lunch / screen wake)
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) syncOpenSessions();
@@ -519,7 +571,23 @@ document.addEventListener('DOMContentLoaded', function () {
   function sendAction(btn, isSwitchingOF) {
     var name = activeEmployee;
     var newOF = currentOF;
-    var previousOF = activeSessions[name];
+    var hasActiveShift = activeSessions.hasOwnProperty(name);
+    var previousOF = hasActiveShift ? activeSessions[name] : '';
+
+    // Prevent duplicate shift creation
+    if (!isSwitchingOF && hasActiveShift) {
+      setStatus('Já tem turno ativo. Use o círculo da OF para trocar.', 'orange');
+      resetKeypadState();
+      return;
+    }
+
+    // Prevent switching to same OF
+    if (isSwitchingOF && String(previousOF) === String(newOF)) {
+      var msg = newOF === '0' ? 'Já está em trabalho geral.' : 'Já está nessa OF.';
+      setStatus(msg, 'red');
+      resetKeypadState();
+      return;
+    }
 
     function applyStartUI() {
       activeSessions[name] = newOF;
@@ -539,7 +607,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var currentTime = new Date();
     var hora = formatHHMM(currentTime);
 
-    if (isSwitchingOF && previousOF) {
+    if (isSwitchingOF && hasActiveShift) {
       // Send END for old OF (async, non-blocking)
       var endPayload = {
         funcionario: name,
@@ -579,6 +647,11 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function endShift(name, btn) {
+    if (!activeSessions.hasOwnProperty(name)) {
+      setStatus('Nenhum turno ativo para terminar.', 'orange');
+      return;
+    }
+
     // Replace window.confirm with consistent modal UI
     openModal(function(modal) {
       var title = document.createElement('h3');
@@ -587,7 +660,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
       var info = document.createElement('div');
       var ofNum = activeSessions[name];
-      info.textContent = 'Terminar turno de ' + name + (ofNum ? ' da OF ' + ofNum : '') + '?';
+      var displayOF = ofNum ? ' da OF ' + formatOFDisplay(ofNum) : '';
+      info.textContent = 'Terminar turno de ' + name + displayOF + '?';
       modal.appendChild(info);
 
       var confirmBtn = document.createElement('button');
@@ -758,7 +832,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function cancelCurrentShift(name, btn) {
-    if (!activeSessions[name]) {
+    if (!activeSessions.hasOwnProperty(name)) {
       setStatus('Sem turno para cancelar', 'red');
       return;
     }
