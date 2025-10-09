@@ -41,6 +41,8 @@
     function formatOFDisplay(ofValue) {
       // Display "Geral" for OF=0 (general work)
       if (ofValue === '0' || ofValue === 0) return 'Geral';
+      // Handle empty/null values
+      if (!ofValue && ofValue !== 0) return '---';
       return String(ofValue);
     }
 
@@ -172,10 +174,11 @@
     function updateCardState(name) {
       var ui = uiMap[name];
       if (!ui) return;
+      var isActive = activeSessions.hasOwnProperty(name);
       var ofValue = activeSessions[name];
-      if (ofValue) {
+      if (isActive) {
         ui.card.classList.add('active');
-        ui.ofDisplay.textContent = formatOFDisplay(ofValue);
+        ui.ofDisplay.textContent = formatOFDisplay(ofValue || '');
       } else {
         ui.card.classList.remove('active');
         ui.ofDisplay.textContent = '+';
@@ -322,7 +325,16 @@
 
     function submitStart(name, ofValue) {
       if (!name || !ofValue) return;
-      var previousOF = activeSessions[name] ? String(activeSessions[name]) : '';
+      var hasActiveShift = activeSessions.hasOwnProperty(name);
+      var previousOF = hasActiveShift ? String(activeSessions[name]) : '';
+
+      // Prevent duplicate shift creation
+      if (!switchingOF && hasActiveShift) {
+        setStatus('Já tem turno ativo. Use o círculo da OF para trocar.', 'orange');
+        closeKeypad();
+        return;
+      }
+
       if (switchingOF && previousOF === String(ofValue)) {
         var msg = ofValue === '0' ? 'Já está em trabalho geral.' : 'Já está na OF ' + ofValue + '.';
         setStatus(msg, 'red');
@@ -330,7 +342,7 @@
         return;
       }
 
-      var wasSwitching = switchingOF && !!previousOF;
+      var wasSwitching = switchingOF && hasActiveShift;
       closeKeypad();
 
       // OPTIMISTIC UI UPDATE - apply immediately for instant feedback
@@ -378,10 +390,14 @@
     }
 
     function endShift(name) {
-      if (!activeSessions[name]) return;
+      if (!activeSessions.hasOwnProperty(name)) {
+        setStatus('Nenhum turno ativo para terminar.', 'orange');
+        return;
+      }
 
       var ofValue = activeSessions[name];
-      showConfirmDialog('Terminar turno de ' + name + '?', function () {
+      var displayOF = ofValue ? ' [OF ' + formatOFDisplay(ofValue) + ']' : '';
+      showConfirmDialog('Terminar turno de ' + name + displayOF + '?', function () {
         // OPTIMISTIC UI UPDATE - apply immediately
         delete activeSessions[name];
         persistActiveSessions();
@@ -469,9 +485,13 @@
     }
 
     function prepareRegister(name) {
-      var ofValue = activeSessions[name];
-      if (!ofValue) {
+      if (!activeSessions.hasOwnProperty(name)) {
         setStatus('Inicie o turno antes de registar o acabamento.', 'orange');
+        return;
+      }
+      var ofValue = activeSessions[name];
+      if (!ofValue && ofValue !== '0') {
+        setStatus('OF não definida. Por favor reinicie o turno.', 'orange');
         return;
       }
 
@@ -804,19 +824,26 @@
       for (var i = 0; i < sessions.length; i++) {
         var item = sessions[i] || {};
         if (!item.funcionario) continue;
-        updated[item.funcionario] = item.of ? String(item.of) : '';
+        // Preserve null/undefined as empty string, but keep actual OF numbers (including 0)
+        var ofValue = item.of !== null && item.of !== undefined ? String(item.of) : '';
+        updated[item.funcionario] = ofValue;
       }
       activeSessions = updated;
       persistActiveSessions();
       for (var key in uiMap) {
         if (uiMap.hasOwnProperty(key)) updateCardState(key);
       }
+      console.log('[Estofagem] Sincronizados ' + sessions.length + ' turnos ativos:', activeSessions);
     }
 
-    function syncOpenSessions() {
+    var syncRetries = 0;
+    var MAX_SYNC_RETRIES = 3;
+
+    function syncOpenSessions(onComplete) {
       try {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', API_URL + '/open', true);
+        xhr.timeout = 8000; // 8 second timeout
         xhr.onreadystatechange = function () {
           if (xhr.readyState === 4) {
             if (xhr.status >= 200 && xhr.status < 300) {
@@ -824,26 +851,77 @@
                 var resp = JSON.parse(xhr.responseText || '{}');
                 if (resp && resp.ok && Array.isArray(resp.sessions)) {
                   applySessionsFromServer(resp.sessions);
+                  syncRetries = 0; // Reset retry counter on success
+                  if (typeof onComplete === 'function') onComplete(true);
+                  return;
                 }
-              } catch (_) {}
+              } catch (e) {
+                console.warn('[Estofagem] Erro ao parsear resposta de /open:', e);
+              }
+            } else if (xhr.status !== 0) {
+              console.warn('[Estofagem] Erro ao sincronizar turnos abertos:', xhr.status);
+            }
+            // Retry on failure during initial load
+            if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+              syncRetries++;
+              console.log('[Estofagem] Retry sincronização (' + syncRetries + '/' + MAX_SYNC_RETRIES + ')...');
+              setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+            } else if (typeof onComplete === 'function') {
+              onComplete(false);
             }
           }
         };
+        xhr.ontimeout = function () {
+          console.warn('[Estofagem] Timeout ao sincronizar turnos abertos');
+          if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+            syncRetries++;
+            setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+          } else if (typeof onComplete === 'function') {
+            onComplete(false);
+          }
+        };
+        xhr.onerror = function () {
+          console.warn('[Estofagem] Erro de rede ao sincronizar turnos abertos');
+          if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+            syncRetries++;
+            setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+          } else if (typeof onComplete === 'function') {
+            onComplete(false);
+          }
+        };
         xhr.send();
-      } catch (_) {}
+      } catch (e) {
+        console.error('[Estofagem] Exceção ao sincronizar:', e);
+        if (typeof onComplete === 'function') onComplete(false);
+      }
     }
 
+    // Create employee rows
     for (var i = 0; i < names.length; i++) {
       createEmployeeRow(names[i]);
     }
 
-    setTimeout(syncOpenSessions, 1500);
-    setInterval(syncOpenSessions, 120000);
+    // Initial sync - immediate with retry, shows loading state
+    setStatus('A carregar turnos ativos...', '#4d4d4d');
+    syncOpenSessions(function(success) {
+      if (success) {
+        setStatus('Sincronizado com sucesso.', '#026042');
+        setTimeout(function() { setStatus('', ''); }, 3000);
+      } else {
+        setStatus('Aviso: Falha ao carregar turnos. A retentar...', 'orange');
+      }
+    });
+
+    // Periodic sync every 2 minutes
+    setInterval(function() { syncOpenSessions(); }, 120000);
+
+    // Sync on visibility change and page show
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) syncOpenSessions();
     });
     window.addEventListener('pageshow', function () { syncOpenSessions(); });
 
+    // Start queue flush
     setTimeout(flushQueue, 500);
   });
 })();
