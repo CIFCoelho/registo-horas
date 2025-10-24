@@ -217,7 +217,7 @@
       employeeList.appendChild(row);
 
       card.onclick = function () {
-        if (activeSessions[name]) {
+        if (activeSessions.hasOwnProperty(name)) {
           endShift(name);
         } else {
           beginShift(name);
