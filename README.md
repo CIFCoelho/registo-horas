@@ -160,7 +160,7 @@ Config do frontend (Acabamento):
  - A secção **Acabamento** inclui uma fila offline mínima (até 30 min) que guarda pedidos quando não há ligação e os reenvia automaticamente com backoff exponencial
 
 Config do frontend (Estofagem):
-- `frontend/JS/config/estofagem.config.js` → ajustar `webAppUrl`, lista de colaboradores e (opcionalmente) nomes sugeridos por omissão para o modal de acabamento
+- `frontend/JS/config/estofagem.config.js` → ajustar `webAppUrl`, lista de colaboradores e (opcionalmente) nomes sugeridos por omissão para o modal de acabamento (o array `acabamentoOptions` deve incluir todos os colaboradores disponíveis na secção de Acabamento, p.ex. `['Antónia', 'Cristina', 'Diogo', 'Luana', 'Pedro', 'Teresa']`)
 - A nova interface sincroniza turnos ativos com `GET /estofagem/open`, suporta fila offline (mesma filosofia do Acabamento) e, ao abrir o modal "Registar Acab.", consulta `GET /estofagem/options?of=…` para listar os colaboradores atualmente ativos no Acabamento para a mesma OF
 - Tal como no Acabamento, tocar no círculo da OF quando há turno ativo fecha a OF corrente e abre uma nova com o número introduzido
 
