@@ -1,6 +1,6 @@
 window.SECTION_CONFIG = {
   section: 'Estofagem',
   webAppUrl: 'https://registo-horas.onrender.com/estofagem',
-  names: ['Antónia', 'Funcionário Ex.', 'Teresa'],
+  names: ['Antónia', 'Luana', 'Teresa'],
   acabamentoOptions: ['Antónia', 'Cristina', 'Diogo', 'Pedro', 'Teresa']
 };
