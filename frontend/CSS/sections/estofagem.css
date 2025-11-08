@@ -1,8 +1,7 @@
 body.estofagem-page #container {
   max-width: 600px;
-  padding-bottom: 40px;
-  padding-left: 12px;
-  padding-right: 12px;
+  width: 100%;
+  padding: 0 12px 40px;
 }
 
 body.estofagem-page .employee-row {
@@ -272,5 +271,66 @@ body.estofagem-page .employee.active .of-display {
   .estofagem-modal .dropdown button {
     font-size: 24px;
     padding: 26px 28px;
+  }
+}
+
+@media (max-width: 720px) {
+  body.estofagem-page #container {
+    padding: 0 8px 32px;
+  }
+
+  body.estofagem-page .employee-row {
+    margin-top: 10px;
+  }
+
+  body.estofagem-page .employee {
+    min-height: 78px;
+    padding: 12px 14px;
+    border-radius: 12px;
+  }
+
+  body.estofagem-page .employee-name {
+    font-size: 18px;
+  }
+
+  body.estofagem-page .right-controls {
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  body.estofagem-page .register-btn {
+    font-size: 14px;
+    padding: 10px 16px;
+    min-width: 140px;
+    border-radius: 22px;
+  }
+
+  body.estofagem-page .of-display {
+    width: 52px;
+    height: 52px;
+    line-height: 52px;
+    font-size: 18px;
+  }
+
+  .estofagem-modal {
+    max-width: 440px;
+    padding: 20px;
+  }
+
+  .estofagem-modal .selector-btn {
+    font-size: 20px;
+    padding: 18px;
+  }
+
+  .estofagem-modal .dropdown button {
+    font-size: 18px;
+    padding: 18px 20px;
+  }
+
+  .estofagem-modal .actions .primary,
+  .estofagem-modal .actions .secondary {
+    font-size: 18px;
+    padding: 12px;
   }
 }
