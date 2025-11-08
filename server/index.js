@@ -14,7 +14,10 @@ const ESTOFAGEM_TEMPO_DB_ID = process.env.ESTOFAGEM_TEMPO_DB_ID;
 const ESTOFAGEM_ACABAMENTOS_DB_ID = process.env.ESTOFAGEM_ACABAMENTOS_DB_ID;
 const COSTURA_DB_ID = process.env.COSTURA_DB_ID;
 const PINTURA_DB_ID = process.env.PINTURA_DB_ID;
-const PREPARACAO_MADEIRAS_DB_ID = process.env.PREPARACAO_MADEIRAS_DB_ID;
+const PREPARACAO_MADEIRAS_DB_ID =
+  process.env.PREPARACAO_MADEIRAS_DB_ID ||
+  process.env.PREPARACAO_DB_ID ||
+  null;
 const MONTAGEM_DB_ID = process.env.MONTAGEM_DB_ID;
 const PINTURA_ISOLANTE_PROP = process.env.PINTURA_ISOLANTE_PROP || 'Isolante Aplicado';
 const PINTURA_TAPA_PROP = process.env.PINTURA_TAPA_PROP || 'Tapa-Poros';
