@@ -19,6 +19,7 @@ const PREPARACAO_MADEIRAS_DB_ID =
   process.env.PREPARACAO_DB_ID ||
   null;
 const MONTAGEM_DB_ID = process.env.MONTAGEM_DB_ID;
+const CUSTO_FUNCIONARIOS_DB_ID = process.env.CUSTO_FUNCIONARIOS_DB_ID;
 const PINTURA_ISOLANTE_PROP = process.env.PINTURA_ISOLANTE_PROP || 'Isolante Aplicado';
 const PINTURA_TAPA_PROP = process.env.PINTURA_TAPA_PROP || 'Tapa-Poros';
 const PINTURA_VERNIZ_PROP = process.env.PINTURA_VERNIZ_PROP || 'Verniz Aplicado';
@@ -35,7 +36,8 @@ const NOTION_DATABASES = {
   costura: COSTURA_DB_ID,
   pintura: PINTURA_DB_ID,
   preparacao: PREPARACAO_MADEIRAS_DB_ID,
-  montagem: MONTAGEM_DB_ID
+  montagem: MONTAGEM_DB_ID,
+  custoFuncionarios: CUSTO_FUNCIONARIOS_DB_ID
 };
 
 const ESTOFAGEM_REGISTOS_PROPS = {
@@ -291,6 +293,357 @@ registerBasicShiftSection('/pintura', PINTURA_DB_ID, 'Pintura', {
 });
 registerBasicShiftSection('/preparacao', PREPARACAO_MADEIRAS_DB_ID, 'Preparação de Madeiras');
 registerBasicShiftSection('/montagem', MONTAGEM_DB_ID, 'Montagem');
+
+// --- Dashboard API ---
+
+// Helper to fetch all pages with pagination
+async function fetchAllPages(dbId, filter) {
+  let results = [];
+  let hasMore = true;
+  let startCursor = undefined;
+
+  while (hasMore) {
+    const payload = {
+      page_size: 100,
+      filter: filter,
+      ...(startCursor && { start_cursor: startCursor }),
+    };
+
+    const response = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Notion query failed: ${text}`);
+    }
+
+    const data = await response.json();
+    results = [...results, ...data.results];
+    hasMore = data.has_more;
+    startCursor = data.next_cursor;
+  }
+  return results;
+}
+
+// 1. Dashboard Summary
+app.get('/api/dashboard/summary', async (req, res) => {
+  try {
+    const activeAcabamento = await listOpenShifts(ACABAMENTO_DB_ID);
+    const activeEstofagem = await listOpenShifts(ESTOFAGEM_TEMPO_DB_ID);
+
+    // Simple stats for today could be added later or computed on client from detailed feeds
+    // For now, return active workers which is the critical real-time component
+
+    res.json({
+      ok: true,
+      activeWorkers: {
+        acabamento: activeAcabamento,
+        estofagem: activeEstofagem
+      }
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// 2. Employee Performance (Yearly/Monthly)
+app.get('/api/dashboard/employees', async (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const startOfYear = new Date(year, 0, 1).toISOString();
+    const endOfYear = new Date(year + 1, 0, 1).toISOString();
+
+    const dateFilter = {
+      and: [
+        { property: 'Data', date: { on_or_after: startOfYear } },
+        { property: 'Data', date: { before: endOfYear } }
+      ]
+    };
+
+    // For shifts, we filter by 'Início do Turno'
+    const shiftFilter = {
+      and: [
+        { property: 'Início do Turno', date: { on_or_after: startOfYear } },
+        { property: 'Início do Turno', date: { before: endOfYear } },
+        { property: 'Final do Turno', date: { is_not_empty: true } } // Completed shifts only
+      ]
+    };
+
+    const [acabamentoShifts, estofagemShifts, units] = await Promise.all([
+      fetchAllPages(ACABAMENTO_DB_ID, shiftFilter),
+      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, shiftFilter),
+      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, dateFilter) // Units often use 'Data'
+    ]);
+
+    // Process data into summary stats
+    const employeeStats = {};
+
+    const processShift = (page, section) => {
+      const name = page.properties?.['Funcionário']?.title?.[0]?.plain_text?.trim();
+      if (!name) return;
+
+      const start = new Date(page.properties?.['Início do Turno']?.date?.start);
+      const end = new Date(page.properties?.['Final do Turno']?.date?.start);
+      const hours = (end - start) / (1000 * 60 * 60);
+
+      if (!employeeStats[name]) employeeStats[name] = { name, hours: 0, units: 0, cost: 0, section: {} };
+      employeeStats[name].hours += hours;
+      employeeStats[name].section[section] = (employeeStats[name].section[section] || 0) + hours;
+    };
+
+    acabamentoShifts.forEach(p => processShift(p, 'Acabamento'));
+    estofagemShifts.forEach(p => processShift(p, 'Estofagem'));
+
+    units.forEach(page => {
+      const cru = page.properties?.['Cru Por:']?.rich_text?.[0]?.plain_text || '';
+      const tp = page.properties?.['TP por:']?.rich_text?.[0]?.plain_text || '';
+
+      // Split comma separated names
+      const creditUnit = (field) => {
+        if (!field) return;
+        field.split(',').forEach(rawName => {
+          const name = rawName.trim();
+          if (!name) return;
+          if (!employeeStats[name]) employeeStats[name] = { name, hours: 0, units: 0, cost: 0, section: {} };
+          employeeStats[name].units += 1;
+        });
+      };
+
+      creditUnit(cru);
+      creditUnit(tp);
+    });
+
+    res.json({ ok: true, data: Object.values(employeeStats) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// 3. OF Performance
+app.get('/api/dashboard/ofs', async (req, res) => {
+  try {
+    // Ideally we filter by status, but for now lets fetch recent ones
+    // Or fetch all from current year
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const startOfYear = new Date(year, 0, 1).toISOString();
+
+    const filter = {
+      property: 'Início do Turno',
+      date: { on_or_after: startOfYear }
+    };
+
+    const [acabamentoShifts, estofagemShifts] = await Promise.all([
+      fetchAllPages(ACABAMENTO_DB_ID, filter),
+      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter)
+    ]);
+
+    const ofStats = {};
+
+    const processShift = (page, section) => {
+      const of = page.properties?.['Ordem de Fabrico']?.number;
+      if (!of && of !== 0) return; // Skip if no OF
+
+      const start = page.properties?.['Início do Turno']?.date?.start;
+      const end = page.properties?.['Final do Turno']?.date?.start;
+
+      let duration = 0;
+      if (start && end) {
+        duration = (new Date(end) - new Date(start)) / (1000 * 60 * 60);
+      }
+
+      if (!ofStats[of]) ofStats[of] = { of, totalHours: 0, acabamentoHours: 0, estofagemHours: 0 };
+      ofStats[of].totalHours += duration;
+      if (section === 'acabamento') ofStats[of].acabamentoHours += duration;
+      if (section === 'estofagem') ofStats[of].estofagemHours += duration;
+    };
+
+    acabamentoShifts.forEach(p => processShift(p, 'acabamento'));
+    estofagemShifts.forEach(p => processShift(p, 'estofagem'));
+
+    res.json({ ok: true, data: Object.values(ofStats).sort((a, b) => b.of - a.of) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// 4. Employee Costs Management
+app.get('/api/dashboard/costs', async (req, res) => {
+  try {
+    if (!CUSTO_FUNCIONARIOS_DB_ID) throw new Error('CUSTO_FUNCIONARIOS_DB_ID not configured');
+    const pages = await fetchAllPages(CUSTO_FUNCIONARIOS_DB_ID, undefined);
+
+    const costs = pages.map(p => ({
+      id: p.id,
+      name: p.properties?.['Funcionário']?.title?.[0]?.plain_text || 'Sem Nome',
+      cost: p.properties?.['Custo do Funcionário (€/h)']?.number || 0
+    }));
+
+    res.json({ ok: true, data: costs });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+app.post('/api/dashboard/employee-cost', async (req, res) => {
+  try {
+    if (!CUSTO_FUNCIONARIOS_DB_ID) throw new Error('CUSTO_FUNCIONARIOS_DB_ID not configured');
+    const { name, cost, id } = req.body;
+
+    if (id) {
+      // Update
+      await fetch(`https://api.notion.com/v1/pages/${id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          properties: {
+            'Custo do Funcionário (€/h)': { number: Number(cost) }
+          }
+        })
+      });
+    } else {
+      // Create
+      await fetch('https://api.notion.com/v1/pages', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          parent: { database_id: CUSTO_FUNCIONARIOS_DB_ID },
+          properties: {
+            'Funcionário': { title: [{ text: { content: name } }] },
+            'Custo do Funcionário (€/h)': { number: Number(cost) }
+          }
+        })
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+app.delete('/api/dashboard/employee-cost/:id', async (req, res) => {
+  try {
+    await fetch(`https://api.notion.com/v1/blocks/${req.params.id}`, {
+      method: 'DELETE',
+      headers
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// 5. Detailed OF View
+app.get('/api/dashboard/of/:ofNumber', async (req, res) => {
+  try {
+    const ofNumber = parseInt(req.params.ofNumber);
+    if (!ofNumber) throw new Error('Invalid OF Number');
+
+    // Filter by OF Number
+    const filter = {
+      property: 'Ordem de Fabrico',
+      number: { equals: ofNumber }
+    };
+
+    const [acabamentoShifts, estofagemShifts, units] = await Promise.all([
+      fetchAllPages(ACABAMENTO_DB_ID, filter),
+      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter),
+      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, filter)
+    ]);
+
+    res.json({
+      ok: true,
+      data: {
+        of: ofNumber,
+        acabamento: acabamentoShifts.map(p => ({
+          id: p.id,
+          funcionario: p.properties?.['Funcionário']?.title?.[0]?.plain_text,
+          start: p.properties?.['Início do Turno']?.date?.start,
+          end: p.properties?.['Final do Turno']?.date?.start,
+        })),
+        estofagem: estofagemShifts.map(p => ({
+          id: p.id,
+          funcionario: p.properties?.['Funcionário']?.title?.[0]?.plain_text,
+          start: p.properties?.['Início do Turno']?.date?.start,
+          end: p.properties?.['Final do Turno']?.date?.start,
+        })),
+        units: units.map(p => ({
+          id: p.id,
+          cru: p.properties?.['Cru Por:']?.rich_text?.[0]?.plain_text,
+          tp: p.properties?.['TP por:']?.rich_text?.[0]?.plain_text,
+          date: p.properties?.['Data']?.date?.start
+        }))
+      }
+    });
+
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// 6. Detailed Employee View
+app.get('/api/dashboard/employee/:name', async (req, res) => {
+  try {
+    const name = req.params.name;
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const startOfYear = new Date(year, 0, 1).toISOString();
+    const endOfYear = new Date(year + 1, 0, 1).toISOString();
+
+    const filter = {
+      and: [
+        { property: 'Funcionário', title: { equals: name } },
+        { property: 'Início do Turno', date: { on_or_after: startOfYear } },
+        { property: 'Início do Turno', date: { before: endOfYear } }
+      ]
+    };
+
+    // Note: Units database structure usually has 'Cru Por:' and 'TP por:' as rich text with multiple names
+    // Filtering by exact match on those fields is hard with Notion API if they are comma separated string.
+    // For now we will return shift data which is the most reliable "Work History".
+    // Pulling all unit records just for one employee might be expensive if we can't filter server side easily.
+    // We'll skip unit details for this specific endpoint for now, or fetch all and filter (expensive).
+    // Let's stick to Shift History.
+
+    const [acabamentoShifts, estofagemShifts] = await Promise.all([
+      fetchAllPages(ACABAMENTO_DB_ID, filter),
+      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter)
+    ]);
+
+    const formatShift = (p, section) => ({
+      id: p.id,
+      of: p.properties?.['Ordem de Fabrico']?.number,
+      start: p.properties?.['Início do Turno']?.date?.start,
+      end: p.properties?.['Final do Turno']?.date?.start,
+      section
+    });
+
+    const shiftHistory = [
+      ...acabamentoShifts.map(p => formatShift(p, 'Acabamento')),
+      ...estofagemShifts.map(p => formatShift(p, 'Estofagem'))
+    ].sort((a, b) => new Date(b.start) - new Date(a.start));
+
+    res.json({
+      ok: true,
+      data: {
+        name,
+        history: shiftHistory
+      }
+    });
+
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
 
 // --- helpers ---
 
@@ -783,7 +1136,7 @@ async function keepAlivePing() {
 cron.schedule(
   '*/5 7-17 * * 1-5',
   async () => {
-    try { await keepAlivePing(); } catch (_) {}
+    try { await keepAlivePing(); } catch (_) { }
   },
   { timezone: 'Europe/Lisbon' }
 );
@@ -794,14 +1147,14 @@ cron.schedule(
   '*/3 7-8 * * 1-5',
   async () => {
     if (isInMorningRush()) {
-      try { await keepAlivePing(); } catch (_) {}
+      try { await keepAlivePing(); } catch (_) { }
     }
   },
   { timezone: 'Europe/Lisbon' }
 );
 
 // Kick an immediate ping on boot if within the window
-(async () => { try { await keepAlivePing(); } catch (_) {} })();
+(async () => { try { await keepAlivePing(); } catch (_) { } })();
 
 // 🚀 Start the server
 app.listen(PORT, () => {

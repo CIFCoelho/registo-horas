@@ -144,6 +144,7 @@ Usada para registar quem fez cada tipo de acabamento final (Cru, TP). Permite cr
   - `ACABAMENTO_DB_ID` – ID da base de dados no Notion
   - `ESTOFAGEM_TEMPO_DB_ID` – ID da base de dados "Estofagem - Tempo"
   - `ESTOFAGEM_ACABAMENTOS_DB_ID` – ID da base de dados "Estofagem - Registos Acab."
+  - `CUSTO_FUNCIONARIOS_DB_ID` – ID da base de dados "Custo Funcionários" (Novo para Dashboard)
   - `ALLOW_ORIGIN` – domínio(s) válidos apenas (sem caminho). Ex.: `https://cifcoelho.github.io` ou lista separada por vírgulas; `*` permite todos (usar com cuidado). O valor por omissão é `https://cifcoelho.github.io`.
   - `KEEPALIVE_URL` – URL a pingar (ex.: o próprio `/health` via Render)
   - `KEEPALIVE_ENABLED` – `true`/`false` (padrão `true`) para ativar o ping 07:30–17:30, dias úteis
@@ -204,6 +205,24 @@ Inclui:
 - Cenários de teste críticos
 
 **Última atualização**: 9 Outubro 2025
+
+---
+
+## 📊 New Interactive Dashboard
+
+Accessible at: `/dashboard/` (e.g., `https://cifcoelho.github.io/registo-horas/dashboard/`)
+
+**Features:**
+- **Real-time Active Workers:** See who is working and on which OF.
+- **Performance Analytics:** Annual hours, units produced, and productivity rates.
+- **OF Progress Tracking:** Visual breakdown of hours per section (Acabamento/Estofagem).
+- **Cost Management:** Admin interface to manage employee hourly costs.
+- **Deep Linking:** Share URLs like `.../dashboard/?of=83` or `.../dashboard/?employee=Cristina`.
+
+**Setup:**
+1. Ensure `CUSTO_FUNCIONARIOS_DB_ID` is set in Render Environment Variables.
+2. Dashboard is statically served via GitHub Pages.
+3. Protected by simple client-side authentication (SessionStorage).
 
 ---
 

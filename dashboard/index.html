@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Certoma - Dashboard de Produtividade</title>
+    <link rel="icon" href="../assets/images/FC_favicon.png" type="image/x-icon">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+    <!-- Authentication Overlay -->
+    <div class="auth-overlay" id="auth-overlay">
+        <div class="auth-modal">
+            <h2>🔐 Acesso Restrito</h2>
+            <p>Dashboard de Gerência</p>
+            <div class="auth-error" id="auth-error">Credenciais inválidas.</div>
+            <form id="auth-form">
+                <label for="username">Utilizador</label>
+                <input type="text" id="username" name="username" required autocomplete="username" autofocus>
+                
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password">
+                
+                <div class="auth-actions">
+                    <button type="submit" class="auth-button">Entrar no Dashboard</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Content (Hidden until Authed) -->
+    <div class="container" id="dashboard-content" style="display: none;">
+        <header>
+            <div>
+                <h1>📊 Dashboard Produção</h1>
+                <p id="current-date">A carregar...</p>
+            </div>
+            <div class="header-controls">
+                <div id="connection-status" style="font-size: 0.8em; opacity: 0.7;">🟢 Online</div>
+                <button class="btn-logout" id="logout-btn">Sair</button>
+            </div>
+        </header>
+
+        <!-- View: Main Dashboard -->
+        <div id="view-main" class="view-section">
+            
+            <!-- Real-time Active Workers -->
+            <section class="active-workers-container">
+                <div class="active-workers-header">
+                    <span class="live-indicator"></span>
+                    <h3>Em Laboração Agora</h3>
+                    <span style="margin-left:auto; font-size:0.8em; opacity:0.8;" id="last-updated">Atualizado: --:--</span>
+                </div>
+                <div class="active-workers-list" id="active-workers-list">
+                    <!-- Injected via JS -->
+                    <div style="width:100%; text-align:center; color:#999; padding:20px;">
+                        A carregar dados em tempo real...
+                    </div>
+                </div>
+            </section>
+
+            <!-- Summary Stats -->
+            <div class="stats-grid" id="summary-stats">
+                <div class="stat-card">
+                    <h3>Total Horas (2025)</h3>
+                    <div class="value" id="stat-total-hours">--</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Total Unidades (2025)</h3>
+                    <div class="value" id="stat-total-units">--</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Produtividade Média</h3>
+                    <div class="value" id="stat-avg-prod">--<span class="unit">un/h</span></div>
+                </div>
+                <div class="stat-card">
+                    <h3>Custo Estimado</h3>
+                    <div class="value" id="stat-total-cost">--<span class="unit">€</span></div>
+                </div>
+            </div>
+
+            <div class="controls-bar">
+                <label>Ano de Análise: 
+                    <select id="year-selector">
+                        <option value="2025" selected>2025</option>
+                        <option value="2024">2024</option>
+                    </select>
+                </label>
+                <div style="flex:1"></div>
+                <button class="auth-button" style="padding: 8px 15px; font-size:0.9em;" onclick="window.location.reload()">🔄 Atualizar Tudo</button>
+            </div>
+
+            <!-- Charts Row 1 -->
+            <div class="grid-2">
+                <div class="chart-container">
+                    <h2>🏆 Performance por Funcionário (Top 10)</h2>
+                    <div class="chart-wrapper">
+                        <canvas id="chartEmployeePerformance"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <h2>⏱️ Progresso por OF (Recentes)</h2>
+                    <div class="chart-wrapper">
+                        <canvas id="chartOFProgress"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Row 2 -->
+             <div class="chart-container">
+                <h2>📈 Evolução Mensal</h2>
+                <div class="chart-wrapper">
+                    <canvas id="chartMonthlyTrend"></canvas>
+                </div>
+            </div>
+            
+             <div class="chart-container">
+                <h2>🛠️ Gestão de Custos</h2>
+                <div style="text-align: right; margin-bottom: 15px;">
+                     <button class="auth-button" id="btn-add-cost" style="font-size:0.9em;">+ Adicionar Funcionário</button>
+                </div>
+                <table id="costs-table">
+                     <thead>
+                         <tr>
+                             <th>Funcionário</th>
+                             <th>Custo Hora (€)</th>
+                             <th>Ações</th>
+                         </tr>
+                     </thead>
+                     <tbody>
+                         <!-- Filled by JS -->
+                     </tbody>
+                </table>
+            </div>
+
+        </div>
+
+        <!-- View: Detail (Employee or OF) -->
+        <div id="view-detail" class="view-section" style="display: none;">
+            <div class="back-btn" id="back-to-main">← Voltar ao Dashboard</div>
+            <h2 class="section-title" id="detail-title">Detalhe</h2>
+            <div id="detail-content"></div>
+        </div>
+
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
