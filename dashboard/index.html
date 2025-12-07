@@ -14,15 +14,15 @@
     <div class="auth-overlay" id="auth-overlay">
         <div class="auth-modal">
             <h2>🔐 Acesso Restrito</h2>
-            <p>Dashboard de Gerência</p>
+            <p>Dashboard de Gerência - Certoma</p>
             <div class="auth-error" id="auth-error">Credenciais inválidas.</div>
             <form id="auth-form">
                 <label for="username">Utilizador</label>
                 <input type="text" id="username" name="username" required autocomplete="username" autofocus>
-                
+
                 <label for="password">Password</label>
                 <input type="password" id="password" name="password" required autocomplete="current-password">
-                
+
                 <div class="auth-actions">
                     <button type="submit" class="auth-button">Entrar no Dashboard</button>
                 </div>
@@ -30,119 +30,279 @@
         </div>
     </div>
 
-    <!-- Main Content (Hidden until Authed) -->
-    <div class="container" id="dashboard-content" style="display: none;">
-        <header>
-            <div>
-                <h1>📊 Dashboard Produção</h1>
-                <p id="current-date">A carregar...</p>
+    <!-- Custom Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-container" id="modal-container">
+            <div class="modal-header">
+                <h3 id="modal-title">Modal</h3>
+                <button class="modal-close" id="modal-close">&times;</button>
             </div>
-            <div class="header-controls">
-                <div id="connection-status" style="font-size: 0.8em; opacity: 0.7;">🟢 Online</div>
+            <div class="modal-body" id="modal-body">
+                <!-- Dynamic content -->
+            </div>
+            <div class="modal-footer" id="modal-footer">
+                <button class="btn btn-secondary" id="modal-cancel">Cancelar</button>
+                <button class="btn btn-primary" id="modal-confirm">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Main Content (Hidden until Authed) -->
+    <div class="dashboard-wrapper" id="dashboard-content" style="display: none;">
+
+        <!-- Navigation Bar -->
+        <nav class="navbar">
+            <div class="navbar-brand">
+                <span class="brand-icon">📊</span>
+                <span class="brand-text">Certoma Dashboard</span>
+            </div>
+            <ul class="navbar-menu" id="navbar-menu">
+                <li class="nav-item active" data-view="overview">
+                    <span class="nav-icon">🏠</span>
+                    <span class="nav-text">Visão Geral</span>
+                </li>
+                <li class="nav-item" data-view="employees">
+                    <span class="nav-icon">👥</span>
+                    <span class="nav-text">Funcionários</span>
+                </li>
+                <li class="nav-item" data-view="ofs">
+                    <span class="nav-icon">📦</span>
+                    <span class="nav-text">Ordens de Fabrico</span>
+                </li>
+                <li class="nav-item" data-view="costs">
+                    <span class="nav-icon">💰</span>
+                    <span class="nav-text">Gestão de Custos</span>
+                </li>
+            </ul>
+            <div class="navbar-actions">
+                <div id="connection-status" class="connection-status online">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Online</span>
+                </div>
                 <button class="btn-logout" id="logout-btn">Sair</button>
             </div>
-        </header>
+        </nav>
 
-        <!-- View: Main Dashboard -->
-        <div id="view-main" class="view-section">
-            
-            <!-- Real-time Active Workers -->
-            <section class="active-workers-container">
-                <div class="active-workers-header">
-                    <span class="live-indicator"></span>
-                    <h3>Em Laboração Agora</h3>
-                    <span style="margin-left:auto; font-size:0.8em; opacity:0.8;" id="last-updated">Atualizado: --:--</span>
+        <!-- Main Container -->
+        <div class="container">
+
+            <!-- Header with Date and Controls -->
+            <header class="page-header">
+                <div class="header-info">
+                    <h1 id="page-title">Visão Geral</h1>
+                    <p id="current-date">A carregar...</p>
                 </div>
-                <div class="active-workers-list" id="active-workers-list">
-                    <!-- Injected via JS -->
-                    <div style="width:100%; text-align:center; color:#999; padding:20px;">
-                        A carregar dados em tempo real...
+                <div class="header-controls">
+                    <label class="control-label">
+                        <span>Ano:</span>
+                        <select id="year-selector" class="select-control">
+                            <option value="2025" selected>2025</option>
+                            <option value="2024">2024</option>
+                        </select>
+                    </label>
+                    <label class="control-label" id="section-filter-container">
+                        <span>Secção:</span>
+                        <select id="section-filter" class="select-control">
+                            <option value="all">Todas</option>
+                            <option value="acabamento">Acabamento</option>
+                            <option value="estofagem">Estofagem</option>
+                        </select>
+                    </label>
+                    <button class="btn btn-secondary" onclick="window.location.reload()">
+                        <span>🔄</span> Atualizar
+                    </button>
+                </div>
+            </header>
+
+            <!-- VIEW: Overview -->
+            <div id="view-overview" class="view-section active">
+
+                <!-- Real-time Active Workers -->
+                <section class="active-workers-container">
+                    <div class="active-workers-header">
+                        <span class="live-indicator"></span>
+                        <h3>Em Laboração Agora</h3>
+                        <span class="last-updated" id="last-updated">Atualizado: --:--</span>
+                    </div>
+                    <div class="active-workers-list" id="active-workers-list">
+                        <div class="loading-placeholder">
+                            <div class="spinner"></div>
+                            <span>A carregar dados em tempo real...</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Summary Stats -->
+                <div class="stats-grid" id="summary-stats">
+                    <div class="stat-card">
+                        <h3>Total Horas</h3>
+                        <div class="value" id="stat-total-hours">
+                            <span class="spinner-small"></span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Total Unidades</h3>
+                        <div class="value" id="stat-total-units">
+                            <span class="spinner-small"></span>
+                        </div>
+                    </div>
+                    <div class="stat-card highlight">
+                        <h3>Produtividade Média</h3>
+                        <div class="value" id="stat-avg-prod">
+                            <span class="spinner-small"></span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Custo Total Estimado</h3>
+                        <div class="value" id="stat-total-cost">
+                            <span class="spinner-small"></span>
+                        </div>
                     </div>
                 </div>
-            </section>
 
-            <!-- Summary Stats -->
-            <div class="stats-grid" id="summary-stats">
-                <div class="stat-card">
-                    <h3>Total Horas (2025)</h3>
-                    <div class="value" id="stat-total-hours">--</div>
+                <!-- Charts Row 1 -->
+                <div class="grid-2">
+                    <div class="chart-container">
+                        <h2>🏆 Performance por Funcionário (Top 10)</h2>
+                        <div class="chart-wrapper" id="chart-employee-wrapper">
+                            <div class="loading-overlay" id="loading-employee">
+                                <div class="spinner"></div>
+                            </div>
+                            <canvas id="chartEmployeePerformance"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <h2>⏱️ Progresso por OF (Recentes)</h2>
+                        <div class="chart-wrapper" id="chart-of-wrapper">
+                            <div class="loading-overlay" id="loading-of">
+                                <div class="spinner"></div>
+                            </div>
+                            <canvas id="chartOFProgress"></canvas>
+                        </div>
+                    </div>
                 </div>
-                <div class="stat-card">
-                    <h3>Total Unidades (2025)</h3>
-                    <div class="value" id="stat-total-units">--</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Produtividade Média</h3>
-                    <div class="value" id="stat-avg-prod">--<span class="unit">un/h</span></div>
-                </div>
-                <div class="stat-card">
-                    <h3>Custo Estimado</h3>
-                    <div class="value" id="stat-total-cost">--<span class="unit">€</span></div>
-                </div>
-            </div>
 
-            <div class="controls-bar">
-                <label>Ano de Análise: 
-                    <select id="year-selector">
-                        <option value="2025" selected>2025</option>
-                        <option value="2024">2024</option>
-                    </select>
-                </label>
-                <div style="flex:1"></div>
-                <button class="auth-button" style="padding: 8px 15px; font-size:0.9em;" onclick="window.location.reload()">🔄 Atualizar Tudo</button>
-            </div>
-
-            <!-- Charts Row 1 -->
-            <div class="grid-2">
+                <!-- Monthly Trend Chart -->
                 <div class="chart-container">
-                    <h2>🏆 Performance por Funcionário (Top 10)</h2>
-                    <div class="chart-wrapper">
-                        <canvas id="chartEmployeePerformance"></canvas>
+                    <h2>📈 Evolução Mensal</h2>
+                    <div class="chart-wrapper large" id="chart-monthly-wrapper">
+                        <div class="loading-overlay" id="loading-monthly">
+                            <div class="spinner"></div>
+                        </div>
+                        <canvas id="chartMonthlyTrend"></canvas>
                     </div>
                 </div>
-                <div class="chart-container">
-                    <h2>⏱️ Progresso por OF (Recentes)</h2>
-                    <div class="chart-wrapper">
-                        <canvas id="chartOFProgress"></canvas>
+
+            </div>
+
+            <!-- VIEW: Employees -->
+            <div id="view-employees" class="view-section">
+                <div class="view-header">
+                    <h2>👥 Análise de Funcionários</h2>
+                    <div class="search-box">
+                        <input type="text" id="employee-search" placeholder="Pesquisar funcionário..." class="search-input">
+                    </div>
+                </div>
+
+                <div class="employees-grid" id="employees-grid">
+                    <div class="loading-placeholder">
+                        <div class="spinner"></div>
+                        <span>A carregar funcionários...</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Charts Row 2 -->
-             <div class="chart-container">
-                <h2>📈 Evolução Mensal</h2>
-                <div class="chart-wrapper">
-                    <canvas id="chartMonthlyTrend"></canvas>
+            <!-- VIEW: OFs -->
+            <div id="view-ofs" class="view-section">
+                <div class="view-header">
+                    <h2>📦 Ordens de Fabrico</h2>
+                    <div class="search-box">
+                        <input type="text" id="of-search" placeholder="Pesquisar OF..." class="search-input">
+                    </div>
+                </div>
+
+                <div class="of-table-container">
+                    <table class="data-table" id="ofs-table">
+                        <thead>
+                            <tr>
+                                <th>OF</th>
+                                <th>Horas Acabamento</th>
+                                <th>Horas Estofagem</th>
+                                <th>Total Horas</th>
+                                <th>Custo Estimado</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ofs-table-body">
+                            <tr>
+                                <td colspan="6" class="loading-cell">
+                                    <div class="spinner"></div>
+                                    <span>A carregar...</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
-            
-             <div class="chart-container">
-                <h2>🛠️ Gestão de Custos</h2>
-                <div style="text-align: right; margin-bottom: 15px;">
-                     <button class="auth-button" id="btn-add-cost" style="font-size:0.9em;">+ Adicionar Funcionário</button>
+
+            <!-- VIEW: Costs Management -->
+            <div id="view-costs" class="view-section">
+                <div class="view-header">
+                    <h2>💰 Gestão de Custos por Funcionário</h2>
+                    <button class="btn btn-primary" id="btn-add-cost">
+                        <span>+</span> Adicionar Funcionário
+                    </button>
                 </div>
-                <table id="costs-table">
-                     <thead>
-                         <tr>
-                             <th>Funcionário</th>
-                             <th>Custo Hora (€)</th>
-                             <th>Ações</th>
-                         </tr>
-                     </thead>
-                     <tbody>
-                         <!-- Filled by JS -->
-                     </tbody>
-                </table>
+
+                <div class="costs-table-container">
+                    <table class="data-table" id="costs-table">
+                        <thead>
+                            <tr>
+                                <th>Funcionário</th>
+                                <th>Custo Hora (€)</th>
+                                <th>Total Horas (Ano)</th>
+                                <th>Custo Total (€)</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="costs-table-body">
+                            <tr>
+                                <td colspan="5" class="loading-cell">
+                                    <div class="spinner"></div>
+                                    <span>A carregar...</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- VIEW: Detail (Employee or OF) -->
+            <div id="view-detail" class="view-section">
+                <button class="btn btn-back" id="back-to-main">
+                    <span>←</span> Voltar
+                </button>
+                <div id="detail-header" class="detail-header">
+                    <h2 id="detail-title">Detalhe</h2>
+                    <div id="detail-subtitle" class="detail-subtitle"></div>
+                </div>
+                <div id="detail-content">
+                    <div class="loading-placeholder">
+                        <div class="spinner"></div>
+                        <span>A carregar detalhes...</span>
+                    </div>
+                </div>
             </div>
 
         </div>
 
-        <!-- View: Detail (Employee or OF) -->
-        <div id="view-detail" class="view-section" style="display: none;">
-            <div class="back-btn" id="back-to-main">← Voltar ao Dashboard</div>
-            <h2 class="section-title" id="detail-title">Detalhe</h2>
-            <div id="detail-content"></div>
-        </div>
+        <!-- Footer -->
+        <footer class="dashboard-footer">
+            <p>Certoma © 2025 - Sistema de Registo de Produtividade</p>
+        </footer>
 
     </div>
 

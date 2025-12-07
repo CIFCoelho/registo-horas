@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(tree:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git ls-tree:*)",
+      "WebFetch(domain:cifcoelho.github.io)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

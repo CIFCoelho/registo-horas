@@ -118,26 +118,77 @@ const DashboardCharts = {
         });
     },
 
-    renderMonthlyTrend(canvasId, data) {
-        // Needs prepared monthly formatted data
-        // Placeholder for now
+    renderMonthlyTrend(canvasId, monthlyData) {
         this.destroy(canvasId);
         const ctx = document.getElementById(canvasId).getContext('2d');
+
+        // monthlyData is an array of 12 objects with { hours, units }
+        const hoursData = monthlyData.map(m => Math.round(m.hours * 100) / 100);
+        const unitsData = monthlyData.map(m => m.units);
 
         this.instances[canvasId] = new Chart(ctx, {
             type: 'line',
             data: {
                 labels: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
-                datasets: [{
-                    label: 'Horas Totais',
-                    data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // Todo: Aggregate in main.js
-                    borderColor: '#28a745',
-                    fill: false
-                }]
+                datasets: [
+                    {
+                        label: 'Horas Totais',
+                        data: hoursData,
+                        borderColor: this.colors.primary,
+                        backgroundColor: 'rgba(230, 105, 45, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Unidades Produzidas',
+                        data: unitsData,
+                        borderColor: this.colors.secondary,
+                        backgroundColor: 'rgba(44, 62, 80, 0.1)',
+                        fill: false,
+                        tension: 0.3,
+                        yAxisID: 'y1'
+                    }
+                ]
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: { display: true, text: 'Horas' },
+                        beginAtZero: true
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: { display: true, text: 'Unidades' },
+                        grid: { drawOnChartArea: false },
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.dataset.label || '';
+                                const value = context.parsed.y;
+                                if (label.includes('Horas')) {
+                                    return `${label}: ${value.toFixed(1)}h`;
+                                }
+                                return `${label}: ${value}`;
+                            }
+                        }
+                    }
+                }
             }
         });
     }

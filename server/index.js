@@ -417,7 +417,40 @@ app.get('/api/dashboard/employees', async (req, res) => {
       creditUnit(tp);
     });
 
-    res.json({ ok: true, data: Object.values(employeeStats) });
+    // Calculate monthly breakdown for trend charts
+    const monthlyStats = Array(12).fill(null).map(() => ({ hours: 0, units: 0 }));
+
+    const processMonthlyShift = (page) => {
+      const start = page.properties?.['Início do Turno']?.date?.start;
+      const end = page.properties?.['Final do Turno']?.date?.start;
+      if (!start || !end) return;
+
+      const month = new Date(start).getMonth();
+      const hours = (new Date(end) - new Date(start)) / (1000 * 60 * 60);
+      monthlyStats[month].hours += hours;
+    };
+
+    acabamentoShifts.forEach(processMonthlyShift);
+    estofagemShifts.forEach(processMonthlyShift);
+
+    // Add units per month
+    units.forEach(page => {
+      const dataDate = page.properties?.['Data']?.date?.start;
+      if (!dataDate) return;
+      const month = new Date(dataDate).getMonth();
+      // Count each record as units (Cru + TP entries)
+      const cru = page.properties?.['Cru Por:']?.rich_text?.[0]?.plain_text || '';
+      const tp = page.properties?.['TP por:']?.rich_text?.[0]?.plain_text || '';
+      const cruCount = cru.split(',').filter(n => n.trim()).length;
+      const tpCount = tp.split(',').filter(n => n.trim()).length;
+      monthlyStats[month].units += Math.max(cruCount, tpCount, 1);
+    });
+
+    res.json({
+      ok: true,
+      data: Object.values(employeeStats),
+      monthly: monthlyStats
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
