@@ -5,7 +5,11 @@
       "Bash(find:*)",
       "Bash(git ls-tree:*)",
       "WebFetch(domain:cifcoelho.github.io)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:registo-horas.onrender.com)"
     ],
     "deny": [],
     "ask": []
