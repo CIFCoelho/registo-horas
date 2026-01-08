@@ -7,3 +7,112 @@ body.preparacao-page .section-subtitle {
   font-size: 18px;
   letter-spacing: 0.04em;
 }
+
+/* Multi-OF Selection Styles */
+.of-chips-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  min-height: 50px;
+  padding: 10px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  border: 2px dashed #ccc;
+}
+
+.of-chips-placeholder {
+  color: #999;
+  font-style: italic;
+  align-self: center;
+  width: 100%;
+  text-align: center;
+}
+
+.of-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #026042;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 20px;
+  font-size: 15px;
+  font-weight: bold;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.of-chip-remove {
+  margin-left: 8px;
+  background: rgba(255, 255, 255, 0.3);
+  border: none;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 6px;
+  border-radius: 50%;
+  line-height: 1;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+
+.of-chip-remove:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.of-input-display {
+  background: white;
+  border: 3px solid #026042;
+  padding: 15px;
+  text-align: center;
+  font-size: 28px;
+  font-weight: bold;
+  margin-bottom: 12px;
+  min-height: 50px;
+  border-radius: 8px;
+  color: #026042;
+  letter-spacing: 2px;
+}
+
+.keypad-bottom-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.keypad-bottom-buttons button {
+  flex: 1;
+  padding: 15px;
+  font-size: 16px;
+  font-weight: bold;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#geral-btn {
+  background: #FF9800;
+  color: white;
+}
+
+#geral-btn:hover {
+  background: #F57C00;
+}
+
+#confirmar-btn {
+  background: #4CAF50;
+  color: white;
+}
+
+#confirmar-btn:hover {
+  background: #45A049;
+}
+
+#cancel-btn {
+  background: #f44336;
+  color: white;
+}
+
+#cancel-btn:hover {
+  background: #da190b;
+}

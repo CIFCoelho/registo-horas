@@ -285,13 +285,266 @@ function registerBasicShiftSection(route, dbId, label, opts) {
   console.log(`📌 Basic shift section ready: ${label || route} (${route})`);
 }
 
+// --- Text-based OF Helper Functions (for Preparação de Madeiras multi-OF support) ---
+
+async function createShiftStartTextOF(dbId, data) {
+  const startISO = hhmmToTodayISO(data.hora);
+
+  // Keep OF as text (supports comma-separated values like "123, 456, 789")
+  const ofText = data.of !== null && data.of !== undefined ? String(data.of) : '0';
+
+  const payload = {
+    parent: { database_id: dbId },
+    properties: {
+      'Funcionário': { title: [{ text: { content: data.funcionario } }] },
+      'Ordem de Fabrico': { rich_text: [{ text: { content: ofText } }] },
+      'Início do Turno': { date: { start: startISO } }
+    }
+  };
+
+  const resp = await fetch('https://api.notion.com/v1/pages', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload)
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Notion create failed (${resp.status}): ${text}`);
+  }
+}
+
+async function findOpenShiftPageTextOF(dbId, funcionario, ofText) {
+  // Try multiple property name variations (handles workspace migration)
+  const funcionarioVariations = PROPERTY_ALIASES.funcionario;
+  const finalTurnoVariations = PROPERTY_ALIASES.finalTurno;
+  const inicioTurnoVariations = PROPERTY_ALIASES.inicioTurno;
+  const ofVariations = PROPERTY_ALIASES.of;
+
+  // Try each combination until one works
+  for (const funcProp of funcionarioVariations) {
+    for (const finalProp of finalTurnoVariations) {
+      for (const inicioProp of inicioTurnoVariations) {
+        for (const ofProp of ofVariations) {
+          try {
+            const filters = [
+              { property: funcProp, title: { equals: funcionario } },
+              { property: finalProp, date: { is_empty: true } }
+            ];
+
+            // If OF text provided, filter by it (text comparison instead of number)
+            if (ofText !== null && ofText !== undefined) {
+              filters.push({ property: ofProp, rich_text: { equals: String(ofText) } });
+            }
+
+            const query = {
+              filter: { and: filters },
+              sorts: [{ property: inicioProp, direction: 'descending' }],
+              page_size: 1
+            };
+
+            const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(query)
+            });
+
+            if (resp.ok) {
+              const json = await resp.json();
+              if (json.results && json.results.length) {
+                console.log(`✓ Found shift (text OF) using properties: Funcionário="${funcProp}", Final="${finalProp}"`);
+                return json.results[0];
+              }
+            }
+          } catch (e) {
+            // Try next variation
+            continue;
+          }
+        }
+      }
+    }
+  }
+
+  const ofMsg = ofText ? ` para OF ${ofText}` : '';
+  console.warn(`⚠️  Nenhum turno aberto encontrado para ${funcionario}${ofMsg}`);
+  console.warn(`   Tentei todas as variações de propriedades: ${funcionarioVariations.join(', ')}`);
+  throw new Error('Nenhum turno aberto encontrado');
+}
+
+async function closeShiftEntryTextOF(dbId, data) {
+  // Keep OF as text for multi-OF support
+  const ofText = data.of !== null && data.of !== undefined ? String(data.of) : null;
+  const page = await findOpenShiftPageTextOF(dbId, data.funcionario, ofText);
+  const requestedEndISO = hhmmToTodayISO(data.hora);
+  const requestedEndDate = new Date(requestedEndISO);
+
+  // Flexible property name resolution (handles workspace migration)
+  const inicioTurnoProp = resolveProperty(page, 'inicioTurno');
+  const finalTurnoProp = resolveProperty(page, 'finalTurno');
+  const notasProp = resolveProperty(page, 'notas');
+  const notasType = getPropertyType(page, notasProp);
+
+  const startProp = page.properties?.[inicioTurnoProp]?.date?.start;
+  const startDate = startProp ? new Date(startProp) : null;
+
+  const adjustment = computeBreakAdjustment(startDate, requestedEndDate);
+
+  const properties = {
+    [finalTurnoProp]: { date: { start: adjustment.endDate.toISOString() } }
+  };
+
+  // Only add notes if property is rich_text (some databases use select instead)
+  if (adjustment.note && notasType === 'rich_text') {
+    const combinedNotes = combineNotes(page.properties?.[notasProp]?.rich_text, adjustment.note);
+    properties[notasProp] = { rich_text: [{ text: { content: combinedNotes } }] };
+  } else if (adjustment.note && notasType !== 'rich_text') {
+    console.warn(`⚠️  Cannot write note: "${notasProp}" is type "${notasType}", expected "rich_text". Skipping note.`);
+  }
+
+  console.log(`📝 Closing shift (text OF) for ${data.funcionario} using properties: Início=${inicioTurnoProp}, Final=${finalTurnoProp}`);
+
+  const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ properties })
+  });
+  if (!resp2.ok) {
+    const text = await resp2.text();
+    throw new Error(`Notion update failed (${resp2.status}): ${text}`);
+  }
+}
+
+async function cancelShiftEntryTextOF(dbId, data) {
+  const endISO = hhmmToTodayISO(data.hora);
+  // Keep OF as text for multi-OF support
+  const ofText = data.of !== null && data.of !== undefined ? String(data.of) : null;
+  const page = await findOpenShiftPageTextOF(dbId, data.funcionario, ofText);
+
+  // Flexible property name resolution
+  const finalTurnoProp = resolveProperty(page, 'finalTurno');
+  const notasProp = resolveProperty(page, 'notas');
+  const notasType = getPropertyType(page, notasProp);
+
+  const properties = {
+    [finalTurnoProp]: { date: { start: endISO } }
+  };
+
+  // Only add notes if property is rich_text (some databases use select instead)
+  if (notasType === 'rich_text') {
+    properties[notasProp] = {
+      rich_text: [{ text: { content: 'Turno cancelado manualmente' } }]
+    };
+  } else {
+    console.warn(`⚠️  Cannot write cancellation note: "${notasProp}" is type "${notasType}", expected "rich_text". Skipping note.`);
+  }
+
+  console.log(`🚫 Cancelling shift (text OF) for ${data.funcionario} using property: Final=${finalTurnoProp}`);
+
+  const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ properties })
+  });
+  if (!resp2.ok) {
+    const text = await resp2.text();
+    throw new Error(`Notion update failed (${resp2.status}): ${text}`);
+  }
+}
+
+async function listOpenShiftsTextOF(dbId) {
+  let start_cursor = undefined;
+  const sessions = [];
+  do {
+    const query = {
+      filter: { property: 'Final do Turno', date: { is_empty: true } },
+      sorts: [{ property: 'Início do Turno', direction: 'ascending' }],
+      page_size: 100,
+      ...(start_cursor ? { start_cursor } : {})
+    };
+
+    const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(query)
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Notion query failed (${resp.status}): ${text}`);
+    }
+
+    const json = await resp.json();
+    for (const page of json.results || []) {
+      const name = (page.properties?.['Funcionário']?.title?.[0]?.plain_text || '').trim();
+      // Read OF as rich_text instead of number
+      const ofText = page.properties?.['Ordem de Fabrico']?.rich_text?.[0]?.plain_text || '0';
+      const start = page.properties?.['Início do Turno']?.date?.start || null;
+      if (name) sessions.push({ funcionario: name, of: ofText, start, id: page.id });
+    }
+    start_cursor = json.has_more ? json.next_cursor : undefined;
+  } while (start_cursor);
+
+  return sessions;
+}
+
+// Special handler for Preparação de Madeiras section (supports multi-OF with text property)
+function registerPreparacaoSection() {
+  const dbId = PREPARACAO_MADEIRAS_DB_ID;
+  const hasDb = !!dbId;
+  const route = '/preparacao';
+  const label = 'Preparação de Madeiras';
+
+  if (!hasDb) {
+    console.warn(`⚠️  Config missing for ${route} (${label}). Requests will return 503.`);
+  }
+
+  app.post(route, async (req, res) => {
+    try {
+      if (!hasDb) throw new Error('Base de dados não configurada para esta secção.');
+      const raw = req.body?.data;
+      if (!raw) throw new Error('Missing data');
+      const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!data.acao || !data.funcionario) throw new Error('Dados incompletos');
+
+      console.log(`[REQ] ${route} ->`, data);
+
+      if (data.acao === 'start') {
+        await createShiftStartTextOF(dbId, data);
+      } else if (data.acao === 'end') {
+        await closeShiftEntryTextOF(dbId, data);
+      } else if (data.acao === 'cancel') {
+        await cancelShiftEntryTextOF(dbId, data);
+      } else {
+        throw new Error('Ação inválida');
+      }
+
+      res.json({ ok: true });
+    } catch (err) {
+      const status = hasDb ? 400 : 503;
+      console.error(err);
+      res.status(status).json({ ok: false, error: String(err.message || err) });
+    }
+  });
+
+  app.get(`${route}/open`, async (req, res) => {
+    try {
+      if (!hasDb) throw new Error('Base de dados não configurada para esta secção.');
+      const sessions = await listOpenShiftsTextOF(dbId);
+      res.json({ ok: true, sessions });
+    } catch (e) {
+      const status = hasDb ? 400 : 503;
+      res.status(status).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  console.log(`📌 Preparação de Madeiras section ready (multi-OF support): ${route}`);
+}
+
 registerBasicShiftSection('/costura', COSTURA_DB_ID, 'Costura');
 registerBasicShiftSection('/pintura', PINTURA_DB_ID, 'Pintura', {
   onRegister: async (data) => {
     await registerPinturaQuantities(PINTURA_DB_ID, data);
   }
 });
-registerBasicShiftSection('/preparacao', PREPARACAO_MADEIRAS_DB_ID, 'Preparação de Madeiras');
+registerPreparacaoSection(); // Uses text-based OF property for multi-OF support
 registerBasicShiftSection('/montagem', MONTAGEM_DB_ID, 'Montagem');
 
 // --- Dashboard API ---

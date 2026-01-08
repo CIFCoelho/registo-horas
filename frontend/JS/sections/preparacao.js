@@ -1,0 +1,976 @@
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var config = window.SECTION_CONFIG || {};
+    var employeeList = document.getElementById('employee-list');
+    var keypad = document.getElementById('of-keypad');
+    var status = document.getElementById('status');
+
+    if (!employeeList || !keypad || !status) {
+      console.warn('ShiftBasic: missing container elements.');
+      return;
+    }
+
+    var API_URL = (config.webAppUrl || '').replace(/\/$/, '');
+    if (!API_URL) {
+      console.warn('ShiftBasic: missing webAppUrl in config.');
+      return;
+    }
+
+    var sectionSlug = (config.section || 'shift')
+      .toString()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'shift';
+
+    var QUEUE_KEY = config.queueKey || (sectionSlug + ':queue');
+    var ACTIVE_SESSIONS_KEY = config.activeSessionsKey || (sectionSlug + ':sessions');
+    var enableCancel = config.enableCancel !== false;
+    var extraMenuBuilders = Array.isArray(config.extraActions) ? config.extraActions : [];
+    var hasActionMenu = enableCancel || extraMenuBuilders.length > 0;
+
+    var names = Array.isArray(config.names) ? config.names : [];
+    if (!names.length) {
+      console.warn('ShiftBasic: no names configured.');
+    }
+
+    var activeEmployee = null;
+    var currentOF = ''; // Keep for compatibility
+    var currentOFInput = ''; // Current OF being typed
+    var selectedOFs = []; // Array of selected OFs for multi-OF support
+    var activeSessions = loadActiveSessions();
+    var actionButtons = {};
+    var employeeButtons = {};
+    var controlsMap = {};
+    var ofDisplayMap = {};
+    var rowStateUpdaters = {};
+    var modalOverlay = null;
+    var statusTimeoutId = null;
+    var requestLocks = {};
+    var queueSending = false;
+
+    var FLUSH_INTERVAL_MS = typeof config.flushIntervalMs === 'number' ? config.flushIntervalMs : 20000;
+    var MAX_QUEUE_AGE_MS = typeof config.maxQueueAgeMs === 'number' ? config.maxQueueAgeMs : 30 * 60 * 1000;
+
+    // --- Helpers ---------------------------------------------------------
+
+    function formatHHMM(date) {
+      var h = date.getHours();
+      var m = date.getMinutes();
+      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    }
+
+    function formatOFDisplay(ofValue) {
+      // Display "Geral" for OF=0 (general work)
+      if (ofValue === '0' || ofValue === 0) return 'Geral';
+      // Handle comma-separated OFs: truncate if too long
+      var ofStr = String(ofValue);
+      if (ofStr.length > 20) {
+        return ofStr.substring(0, 17) + '...';
+      }
+      return ofStr;
+    }
+
+    function setStatus(message, color) {
+      if (statusTimeoutId) {
+        clearTimeout(statusTimeoutId);
+        statusTimeoutId = null;
+      }
+      status.textContent = message || '';
+      if (color) status.style.color = color;
+      if (message) {
+        statusTimeoutId = setTimeout(function () {
+          status.textContent = '';
+        }, 30000);
+      }
+    }
+
+    function acquireLock(key) {
+      if (!key) return true;
+      if (requestLocks[key]) return false;
+      requestLocks[key] = true;
+      return true;
+    }
+
+    function releaseLock(key) {
+      if (!key) return;
+      delete requestLocks[key];
+    }
+
+    function loadActiveSessions() {
+      try {
+        var raw = localStorage.getItem(ACTIVE_SESSIONS_KEY);
+        if (!raw) return {};
+        var parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') {
+          localStorage.removeItem(ACTIVE_SESSIONS_KEY);
+          return {};
+        }
+        return parsed;
+      } catch (_) {
+        localStorage.removeItem(ACTIVE_SESSIONS_KEY);
+        return {};
+      }
+    }
+
+    function persistActiveSessions() {
+      try { localStorage.setItem(ACTIVE_SESSIONS_KEY, JSON.stringify(activeSessions || {})); } catch (_) {}
+    }
+
+    function loadQueue() {
+      try {
+        var raw = localStorage.getItem(QUEUE_KEY);
+        if (!raw) return [];
+        var arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr : [];
+      } catch (_) { return []; }
+    }
+
+    function saveQueue(q) {
+      try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q || [])); } catch (_) {}
+    }
+
+    function enqueueRequest(data, url, key) {
+      try {
+        var queue = loadQueue();
+        if (key) {
+          for (var i = 0; i < queue.length; i++) {
+            if (queue[i].key === key) {
+              queue[i].ts = Date.now();
+              queue[i].next = Date.now();
+              queue[i].data = data;
+              queue[i].url = url;
+              queue[i].retries = 0;
+              saveQueue(queue);
+              setStatus('Pedido já guardado. Aguarde ligação.', 'orange');
+              setTimeout(flushQueue, 1000);
+              return false;
+            }
+          }
+        }
+        queue.push({ data: data, url: url, ts: Date.now(), retries: 0, next: Date.now(), key: key });
+        saveQueue(queue);
+        setStatus('Sem ligação. Guardado para envio automático.', 'orange');
+        setTimeout(flushQueue, 1000);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function sendQueueItem(item, cb) {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', item.url, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) {
+            var ok = xhr.status >= 200 && xhr.status < 300;
+            if (ok) return cb(true);
+            if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) return cb(false, true);
+            return cb(false, false);
+          }
+        };
+        xhr.onerror = function () { cb(false, true); };
+        xhr.send('data=' + encodeURIComponent(JSON.stringify(item.data)));
+      } catch (_) {
+        cb(false, true);
+      }
+    }
+
+    function flushQueue() {
+      if (queueSending) return;
+      var queue = loadQueue();
+      var now = Date.now();
+      var kept = [];
+      for (var i = 0; i < queue.length; i++) {
+        var entry = queue[i];
+        if (now - (entry.ts || 0) <= MAX_QUEUE_AGE_MS) kept.push(entry);
+      }
+      if (kept.length !== queue.length) saveQueue(kept);
+      queue = kept;
+
+      var idx = -1;
+      for (var j = 0; j < queue.length; j++) {
+        if ((queue[j].next || 0) <= now) {
+          idx = j;
+          break;
+        }
+      }
+      if (idx === -1) return;
+
+      var item = queue.splice(idx, 1)[0];
+      saveQueue(queue);
+      queueSending = true;
+      sendQueueItem(item, function (success, shouldRetry) {
+        queueSending = false;
+        if (success) {
+          setTimeout(flushQueue, 100);
+          scheduleSync(1500);
+        } else if (shouldRetry) {
+          item.retries = (item.retries || 0) + 1;
+          var backoff = Math.min(10 * 60 * 1000, 5000 * Math.pow(2, Math.max(0, item.retries - 1)));
+          item.next = Date.now() + backoff;
+          var q2 = loadQueue();
+          q2.push(item);
+          saveQueue(q2);
+        } else {
+          setStatus('Erro permanente ao enviar um pedido. Verifique dados.', 'red');
+          scheduleSync(1500);
+        }
+      });
+    }
+
+    setInterval(flushQueue, FLUSH_INTERVAL_MS);
+    window.addEventListener('online', function () { setTimeout(flushQueue, 500); scheduleSync(500); });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { setTimeout(flushQueue, 500); scheduleSync(500); } });
+    window.addEventListener('pageshow', function () { setTimeout(flushQueue, 500); scheduleSync(500); });
+
+    var syncTimeoutId = null;
+    function scheduleSync(delay) {
+      if (syncTimeoutId) {
+        clearTimeout(syncTimeoutId);
+        syncTimeoutId = null;
+      }
+      syncTimeoutId = setTimeout(syncOpenSessions, typeof delay === 'number' ? delay : 2000);
+    }
+
+    function sendPayload(data, opts) {
+      opts = opts || {};
+      var settled = false;
+      var acceptedStatuses = opts.acceptStatuses || [];
+      var lockKey = opts.lockKey || null;
+      if (lockKey && !acquireLock(lockKey)) {
+        if (typeof opts.onDuplicate === 'function') {
+          opts.onDuplicate();
+        } else {
+          setStatus('Pedido já está a ser processado. Aguarde.', 'orange');
+        }
+        return false;
+      }
+
+      function finish(success, queued, detail) {
+        if (settled) return;
+        settled = true;
+        releaseLock(lockKey);
+        if (success) {
+          if (typeof opts.onSuccess === 'function') opts.onSuccess(detail);
+        } else {
+          if (typeof opts.onError === 'function') {
+            opts.onError({ queued: queued, detail: detail || null });
+          }
+        }
+        if (typeof opts.onSettled === 'function') opts.onSettled(success, queued, detail || null);
+      }
+
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', API_URL, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) {
+            var ok = xhr.status >= 200 && xhr.status < 300;
+            if (!ok) {
+              if (acceptedStatuses.indexOf(xhr.status) !== -1) {
+                finish(true, false, { status: xhr.status, body: xhr.responseText });
+                return;
+              }
+              if (xhr.status === 0 || xhr.status === 429 || xhr.status >= 500) {
+                enqueueRequest(data, API_URL, opts.queueKey || null);
+                finish(false, true, { status: xhr.status, body: xhr.responseText });
+              } else {
+                setStatus('Erro: ligação falhou (' + xhr.status + ')', 'red');
+                finish(false, false, { status: xhr.status, body: xhr.responseText });
+              }
+            } else {
+              finish(true, false, { status: xhr.status, body: xhr.responseText });
+            }
+          }
+        };
+        xhr.onerror = function () {
+          enqueueRequest(data, API_URL, opts.queueKey || null);
+          finish(false, true, { status: 0, body: '' });
+        };
+        xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
+      } catch (err) {
+        enqueueRequest(data, API_URL, opts.queueKey || null);
+        finish(false, true, { status: 0, body: String(err && err.message ? err.message : err) });
+      }
+      return true;
+    }
+
+    function getOpenEndpoint() {
+      return API_URL + '/open';
+    }
+
+    function applySessionsToUI(serverMap) {
+      var changed = false;
+      for (var localName in activeSessions) {
+        if (!serverMap.hasOwnProperty(localName)) {
+          delete activeSessions[localName];
+          changed = true;
+        }
+      }
+      for (var serverName in serverMap) {
+        if (activeSessions[serverName] !== serverMap[serverName]) {
+          activeSessions[serverName] = serverMap[serverName];
+          changed = true;
+        }
+      }
+      if (changed) persistActiveSessions();
+
+      for (var i = 0; i < names.length; i++) {
+        var n = names[i];
+        var card = employeeButtons[n];
+        if (!card) continue;
+        var ofDisplay = ofDisplayMap[n];
+        var menuBtn = actionButtons[n];
+        var isActive = activeSessions.hasOwnProperty(n);
+        if (isActive) {
+          card.classList.add('active');
+          if (ofDisplay) ofDisplay.textContent = formatOFDisplay(activeSessions[n]);
+          if (menuBtn) menuBtn.style.display = 'inline-block';
+        } else {
+          card.classList.remove('active');
+          if (ofDisplay) ofDisplay.textContent = '+';
+          if (menuBtn) menuBtn.style.display = 'none';
+        }
+        notifyRowState(n);
+      }
+    }
+
+    var syncRetries = 0;
+    var MAX_SYNC_RETRIES = 3;
+
+    function syncOpenSessions(onComplete) {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', getOpenEndpoint(), true);
+        xhr.timeout = 8000; // 8 second timeout
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                var resp = JSON.parse(xhr.responseText || '{}');
+                if (resp && resp.ok && resp.sessions) {
+                  var map = {};
+                  for (var i = 0; i < resp.sessions.length; i++) {
+                    var session = resp.sessions[i];
+                    if (session && session.funcionario) {
+                      // Preserve OF=0 (general work) and all valid numbers
+                      var ofValue = session.of !== null && session.of !== undefined ? String(session.of) : '';
+                      map[session.funcionario] = ofValue;
+                    }
+                  }
+                  applySessionsToUI(map);
+                  console.log('[' + (config.section || 'ShiftBasic') + '] Sincronizados ' + resp.sessions.length + ' turnos ativos:', map);
+                  syncRetries = 0; // Reset retry counter on success
+                  if (typeof onComplete === 'function') onComplete(true);
+                  return;
+                }
+              } catch (e) {
+                console.warn('[' + (config.section || 'ShiftBasic') + '] Erro ao parsear resposta de /open:', e);
+              }
+            } else if (xhr.status !== 0) {
+              console.warn('[' + (config.section || 'ShiftBasic') + '] Erro ao sincronizar turnos abertos:', xhr.status);
+            }
+            // Retry on failure during initial load
+            if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+              syncRetries++;
+              console.log('[' + (config.section || 'ShiftBasic') + '] Retry sincronização (' + syncRetries + '/' + MAX_SYNC_RETRIES + ')...');
+              setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+            } else if (typeof onComplete === 'function') {
+              onComplete(false);
+            }
+          }
+        };
+        xhr.ontimeout = function () {
+          console.warn('[' + (config.section || 'ShiftBasic') + '] Timeout ao sincronizar turnos abertos');
+          if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+            syncRetries++;
+            setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+          } else if (typeof onComplete === 'function') {
+            onComplete(false);
+          }
+        };
+        xhr.onerror = function () {
+          console.warn('[' + (config.section || 'ShiftBasic') + '] Erro de rede ao sincronizar turnos abertos');
+          if (syncRetries < MAX_SYNC_RETRIES && typeof onComplete === 'function') {
+            syncRetries++;
+            setTimeout(function() { syncOpenSessions(onComplete); }, 2000);
+          } else if (typeof onComplete === 'function') {
+            onComplete(false);
+          }
+        };
+        xhr.send();
+      } catch (e) {
+        console.error('[' + (config.section || 'ShiftBasic') + '] Exceção ao sincronizar:', e);
+        if (typeof onComplete === 'function') onComplete(false);
+      }
+    }
+
+    // Initial sync - immediate with retry, shows loading state
+    setStatus('A carregar turnos ativos...', '#4d4d4d');
+    syncOpenSessions(function(success) {
+      if (success) {
+        setStatus('Sincronizado com sucesso.', '#026042');
+        setTimeout(function() { setStatus('', ''); }, 3000);
+      } else {
+        setStatus('Aviso: Falha ao carregar turnos. A retentar...', 'orange');
+      }
+    });
+
+    // Periodic sync every 2 minutes
+    setInterval(function() { syncOpenSessions(); }, 120000);
+
+    // --- UI construction -------------------------------------------------
+
+    names.forEach(function (name) {
+      var row = document.createElement('div');
+      row.className = 'employee-row';
+
+      var card = document.createElement('div');
+      card.className = 'employee';
+
+      var nameSpan = document.createElement('span');
+      nameSpan.textContent = name;
+      card.appendChild(nameSpan);
+
+      var controls = document.createElement('div');
+      controls.className = 'right-controls';
+
+      var ofDisplay = document.createElement('span');
+      ofDisplay.className = 'of-display';
+      ofDisplay.textContent = '+';
+      controls.appendChild(ofDisplay);
+
+      var menuBtn = null;
+      if (hasActionMenu) {
+        menuBtn = document.createElement('button');
+        menuBtn.className = 'action-btn';
+        menuBtn.textContent = '\u22EF';
+        menuBtn.onclick = function (event) {
+          event.stopPropagation();
+          showActionMenu(name, card);
+        };
+        controls.appendChild(menuBtn);
+        actionButtons[name] = menuBtn;
+      }
+
+      card.appendChild(controls);
+      row.appendChild(card);
+      employeeList.appendChild(row);
+
+      employeeButtons[name] = card;
+      controlsMap[name] = controls;
+      ofDisplayMap[name] = ofDisplay;
+      rowStateUpdaters[name] = [];
+
+      ofDisplay.onclick = function (event) {
+        event.stopPropagation();
+        if (activeSessions.hasOwnProperty(name)) {
+          handleOFChange(name, card);
+        }
+      };
+
+      card.onclick = function () {
+        if (!activeSessions.hasOwnProperty(name)) {
+          handleEmployeeClick(name, card);
+        } else {
+          endShift(name, card);
+        }
+      };
+
+      if (typeof config.onRowCreated === 'function') {
+        try {
+          var api = {
+            name: name,
+            card: card,
+            controls: controls,
+            ofDisplay: ofDisplay,
+            actionButton: menuBtn,
+            setStatus: setStatus,
+            openModal: openModal,
+            closeModal: closeModal,
+            sendRequest: function (payload, options) { return sendPayload(payload, options || {}); },
+            getActiveOF: function () { return activeSessions[name] || ''; },
+            registerStateUpdater: function (fn) {
+              if (typeof fn === 'function') rowStateUpdaters[name].push(fn);
+            },
+            refreshState: function () { notifyRowState(name); },
+            queuePrefix: sectionSlug,
+            scheduleSync: scheduleSync,
+            persistActiveSessions: persistActiveSessions
+          };
+          var result = config.onRowCreated(api);
+          if (typeof result === 'function') {
+            rowStateUpdaters[name].push(result);
+          }
+        } catch (err) {
+          console.warn('ShiftBasic onRowCreated error:', err && err.message ? err.message : err);
+        }
+      }
+
+      if (activeSessions.hasOwnProperty(name)) {
+        card.classList.add('active');
+        ofDisplay.textContent = formatOFDisplay(activeSessions[name]);
+        if (menuBtn) menuBtn.style.display = 'inline-block';
+      }
+
+      notifyRowState(name);
+    });
+
+    // --- Interaction logic ----------------------------------------------
+
+    function handleEmployeeClick(name, card) {
+      activeEmployee = name;
+      showKeypad(card, false);
+      highlightSelected(card);
+    }
+
+    function handleOFChange(name, card) {
+      activeEmployee = name;
+      currentOF = '';
+      showKeypad(card, true);
+      highlightSelected(card);
+    }
+
+    function highlightSelected(selectedCard) {
+      var buttons = document.querySelectorAll('.employee');
+      for (var i = 0; i < buttons.length; i++) {
+        buttons[i].classList.remove('selected');
+      }
+      selectedCard.classList.add('selected');
+    }
+
+    function showKeypad(card, isSwitchingOF) {
+      keypad.innerHTML = '';
+
+      // Container for selected OF chips
+      var chipsContainer = document.createElement('div');
+      chipsContainer.id = 'of-chips-container';
+      chipsContainer.className = 'of-chips-container';
+
+      if (selectedOFs.length === 0) {
+        var placeholder = document.createElement('div');
+        placeholder.className = 'of-chips-placeholder';
+        placeholder.textContent = 'Nenhuma OF selecionada';
+        chipsContainer.appendChild(placeholder);
+      } else {
+        for (var i = 0; i < selectedOFs.length; i++) {
+          var chip = createOFChip(selectedOFs[i], i);
+          chipsContainer.appendChild(chip);
+        }
+      }
+      keypad.appendChild(chipsContainer);
+
+      // Input display for current OF being typed
+      var inputDisplay = document.createElement('div');
+      inputDisplay.id = 'of-input-display';
+      inputDisplay.className = 'of-input-display';
+      inputDisplay.textContent = currentOFInput || '_';
+      keypad.appendChild(inputDisplay);
+
+      // Numeric keypad (1-9, backspace, 0, "Adicionar")
+      var rows = [['1','2','3'], ['4','5','6'], ['7','8','9'], ['\u2190','0','Adic']];
+      for (var r = 0; r < rows.length; r++) {
+        var row = document.createElement('div');
+        row.className = 'key-row';
+        for (var c = 0; c < rows[r].length; c++) {
+          var key = rows[r][c];
+          var keyBtn = document.createElement('button');
+          keyBtn.className = 'key';
+          if (key === 'Adic') keyBtn.className += ' wide';
+          keyBtn.textContent = key === '\u2190' ? '←' : key;
+          keyBtn.onclick = (function (value) {
+            return function () {
+              handleKeyPress(value, card, !!isSwitchingOF);
+            };
+          })(key);
+          row.appendChild(keyBtn);
+        }
+        keypad.appendChild(row);
+      }
+
+      // Bottom buttons row: GERAL, CONFIRMAR, CANCELAR
+      var bottomRow = document.createElement('div');
+      bottomRow.className = 'keypad-bottom-buttons';
+
+      var geralBtn = document.createElement('button');
+      geralBtn.id = 'geral-btn';
+      geralBtn.textContent = 'GERAL';
+      geralBtn.onclick = function () {
+        selectedOFs = ['0'];
+        currentOFInput = '';
+        showKeypad(card, isSwitchingOF); // Refresh UI
+      };
+      bottomRow.appendChild(geralBtn);
+
+      var confirmarBtn = document.createElement('button');
+      confirmarBtn.id = 'confirmar-btn';
+      confirmarBtn.textContent = 'CONFIRMAR';
+      confirmarBtn.onclick = function () {
+        if (selectedOFs.length === 0) {
+          setStatus('Selecione pelo menos uma OF ou escolha GERAL', 'red');
+          return;
+        }
+        sendAction(card, isSwitchingOF);
+      };
+      bottomRow.appendChild(confirmarBtn);
+
+      var cancelBtn = document.createElement('button');
+      cancelBtn.id = 'cancel-btn';
+      cancelBtn.textContent = 'CANCELAR';
+      cancelBtn.onclick = resetKeypadState;
+      bottomRow.appendChild(cancelBtn);
+
+      keypad.appendChild(bottomRow);
+      keypad.style.display = 'block';
+    }
+
+    function createOFChip(ofValue, index) {
+      var chip = document.createElement('div');
+      chip.className = 'of-chip';
+      chip.textContent = ofValue === '0' ? 'Geral' : ofValue;
+
+      var removeBtn = document.createElement('button');
+      removeBtn.className = 'of-chip-remove';
+      removeBtn.textContent = '×';
+      removeBtn.onclick = function () {
+        selectedOFs.splice(index, 1);
+        // Re-render keypad to update chips
+        var card = document.querySelector('.employee.selected');
+        if (card) showKeypad(card, false);
+      };
+      chip.appendChild(removeBtn);
+
+      return chip;
+    }
+
+    function handleKeyPress(key, card, isSwitchingOF) {
+      var display = document.getElementById('of-input-display');
+      if (key === '\u2190' || key === '←') {
+        // Backspace: remove last character
+        currentOFInput = currentOFInput.slice(0, -1);
+      } else if (key === 'Adic') {
+        // Add button: add current input to selectedOFs array
+        if (currentOFInput && currentOFInput.trim() !== '') {
+          // Check for duplicates
+          if (selectedOFs.indexOf(currentOFInput) === -1) {
+            // Remove '0' if adding specific OFs (general work is mutually exclusive)
+            if (selectedOFs.length === 1 && selectedOFs[0] === '0') {
+              selectedOFs = [];
+            }
+            selectedOFs.push(currentOFInput);
+            currentOFInput = '';
+            showKeypad(card, isSwitchingOF); // Refresh UI to show new chip
+          } else {
+            setStatus('OF ' + currentOFInput + ' já foi adicionada', 'orange');
+          }
+        } else {
+          setStatus('Digite uma OF primeiro', 'red');
+        }
+      } else {
+        // Numeric key: append to current input (max 6 digits)
+        if (currentOFInput.length < 6) currentOFInput += key;
+      }
+      if (display) display.textContent = currentOFInput || '_';
+    }
+
+    function resetKeypadState() {
+      currentOF = '';
+      currentOFInput = '';
+      selectedOFs = [];
+      activeEmployee = null;
+      keypad.innerHTML = '';
+      keypad.style.display = 'none';
+      var buttons = document.querySelectorAll('.employee');
+      for (var i = 0; i < buttons.length; i++) {
+        buttons[i].classList.remove('selected');
+      }
+    }
+
+    function sendAction(card, isSwitchingOF) {
+      var name = activeEmployee;
+      // Join selected OFs with ", " for multi-OF support
+      var newOF = selectedOFs.length > 0 ? selectedOFs.join(', ') : '0';
+      var hasActiveShift = activeSessions.hasOwnProperty(name);
+      var previousOF = hasActiveShift ? activeSessions[name] : '';
+
+      // Validate: must have at least one OF selected
+      if (selectedOFs.length === 0) {
+        setStatus('Selecione pelo menos uma OF ou escolha GERAL', 'red');
+        return;
+      }
+
+      // Prevent duplicate shift creation
+      if (!isSwitchingOF && hasActiveShift) {
+        setStatus('Já tem turno ativo. Use o círculo da OF para trocar.', 'orange');
+        resetKeypadState();
+        return;
+      }
+
+      // Prevent switching to same OF
+      if (isSwitchingOF && String(previousOF) === String(newOF)) {
+        var msg = newOF === '0' ? 'Já está em trabalho geral.' : 'Já está nessa OF.';
+        setStatus(msg, 'red');
+        resetKeypadState();
+        return;
+      }
+
+      // OPTIMISTIC UI UPDATE - apply immediately for instant feedback
+      activeSessions[name] = newOF;
+      persistActiveSessions();
+      card.classList.add('active');
+      var ofDisplay = ofDisplayMap[name];
+      if (ofDisplay) ofDisplay.textContent = formatOFDisplay(newOF);
+      var menuBtn = actionButtons[name];
+      if (menuBtn) menuBtn.style.display = 'inline-block';
+      var displayText = newOF === '0' ? 'Geral' : newOF;
+      setStatus('Registado: ' + name + ' [' + displayText + ']', 'green');
+      resetKeypadState();
+      notifyRowState(name);
+      triggerShiftEvent('start', name, { of: newOF });
+
+      // Send requests asynchronously (don't block UI)
+      var currentTime = new Date();
+      var hora = formatHHMM(currentTime);
+
+      if (isSwitchingOF && hasActiveShift) {
+        // Send END for old OF (async, non-blocking)
+        var endPayload = {
+          funcionario: name,
+          of: previousOF,
+          acao: 'end',
+          hora: hora
+        };
+        sendPayload(endPayload, {
+          acceptStatuses: [400],
+          lockKey: 'end:' + name,
+          queueKey: 'end:' + name + ':' + String(previousOF || ''),
+          onDuplicate: function () {
+            console.log('⚠️ Pedido de fecho duplicado (ignorado)');
+          }
+        });
+      }
+
+      // Send START for new OF (async, non-blocking)
+      var startPayload = {
+        funcionario: name,
+        of: newOF,
+        acao: 'start',
+        hora: hora
+      };
+      sendPayload(startPayload, {
+        lockKey: 'start:' + name,
+        queueKey: 'start:' + name + ':' + String(newOF || ''),
+        onDuplicate: function () {
+          console.log('⚠️ Pedido de início duplicado (ignorado)');
+        }
+      });
+
+      // Note: Backend now handles race conditions via OF-specific filtering.
+      // GET /open sync (every 2min) will correct any drift.
+    }
+
+    function endShift(name, card) {
+      if (!activeSessions.hasOwnProperty(name)) {
+        setStatus('Nenhum turno ativo para terminar.', 'orange');
+        return;
+      }
+
+      openModal(function (modal) {
+        var title = document.createElement('h3');
+        title.textContent = 'Terminar Turno?';
+        modal.appendChild(title);
+
+        var info = document.createElement('div');
+        var ofNum = activeSessions[name];
+        var displayOF = ofNum ? ' da OF ' + formatOFDisplay(ofNum) : '';
+        info.textContent = 'Terminar turno de ' + name + displayOF + '?';
+        modal.appendChild(info);
+
+        var confirmBtn = document.createElement('button');
+        confirmBtn.textContent = 'Terminar';
+        confirmBtn.onclick = function () {
+          var currentOfValue = activeSessions[name];
+
+          // OPTIMISTIC UI UPDATE - apply immediately
+          delete activeSessions[name];
+          persistActiveSessions();
+          card.classList.remove('active');
+          var ofDisplay = ofDisplayMap[name];
+          if (ofDisplay) ofDisplay.textContent = '+';
+          var menuBtn = actionButtons[name];
+          if (menuBtn) menuBtn.style.display = 'none';
+          setStatus('Turno fechado: ' + name, 'orange');
+          notifyRowState(name);
+          triggerShiftEvent('end', name, { of: currentOfValue });
+          closeModal();
+
+          // Send END request asynchronously (don't block UI)
+          var payload = {
+            funcionario: name,
+            of: currentOfValue,
+            acao: 'end',
+            hora: formatHHMM(new Date())
+          };
+
+          sendPayload(payload, {
+            lockKey: 'end:' + name,
+            queueKey: 'end:' + name + ':' + String(currentOfValue || ''),
+            onDuplicate: function () {
+              console.log('⚠️ Pedido de fecho duplicado (ignorado)');
+            }
+          });
+
+          // Note: GET /open sync will correct any drift if request fails
+        };
+        modal.appendChild(confirmBtn);
+
+        var cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Cancelar';
+        cancelBtn.onclick = function () {
+          setStatus('Operação cancelada', 'orange');
+          closeModal();
+        };
+        modal.appendChild(cancelBtn);
+      });
+    }
+
+    function cancelCurrentShift(name, card) {
+      if (!activeSessions.hasOwnProperty(name)) {
+        setStatus('Sem turno para cancelar', 'red');
+        return;
+      }
+
+      var currentOfValue = activeSessions[name];
+
+      // OPTIMISTIC UI UPDATE - apply immediately
+      delete activeSessions[name];
+      persistActiveSessions();
+      card.classList.remove('active');
+      var ofDisplay = ofDisplayMap[name];
+      if (ofDisplay) ofDisplay.textContent = '+';
+      var menuBtn = actionButtons[name];
+      if (menuBtn) menuBtn.style.display = 'none';
+      setStatus('Turno cancelado: ' + name, 'orange');
+      notifyRowState(name);
+      triggerShiftEvent('cancel', name, { of: currentOfValue });
+
+      // Send CANCEL request asynchronously (don't block UI)
+      var payload = {
+        funcionario: name,
+        of: currentOfValue,
+        acao: 'cancel',
+        hora: formatHHMM(new Date())
+      };
+
+      sendPayload(payload, {
+        lockKey: 'cancel:' + name,
+        queueKey: 'cancel:' + name + ':' + String(currentOfValue || ''),
+        onDuplicate: function () {
+          console.log('⚠️ Pedido de cancelamento duplicado (ignorado)');
+        }
+      });
+
+      // Note: GET /open sync will correct any drift if request fails
+    }
+
+    function showActionMenu(name, card) {
+      openModal(function (modal) {
+        var header = document.createElement('h3');
+        header.textContent = 'Ações';
+        modal.appendChild(header);
+
+        if (enableCancel) {
+          var cancelBtn = document.createElement('button');
+          cancelBtn.textContent = 'Cancelar Turno Atual';
+          cancelBtn.onclick = function () {
+            closeModal();
+            cancelCurrentShift(name, card);
+          };
+          modal.appendChild(cancelBtn);
+        }
+
+        for (var i = 0; i < extraMenuBuilders.length; i++) {
+          try {
+            extraMenuBuilders[i](modal, {
+              nome: name,
+              closeModal: closeModal,
+              setStatus: setStatus,
+              activeSessions: activeSessions,
+              persistActiveSessions: persistActiveSessions,
+              sendPayload: sendPayload,
+              card: card
+            });
+          } catch (e) {
+            console.warn('ShiftBasic extra action error:', e && e.message ? e.message : e);
+          }
+        }
+
+        var fecharBtn = document.createElement('button');
+        fecharBtn.textContent = 'Fechar';
+        fecharBtn.onclick = closeModal;
+        modal.appendChild(fecharBtn);
+      });
+    }
+
+    function openModal(builder) {
+      closeModal();
+      modalOverlay = document.createElement('div');
+      modalOverlay.className = 'modal-overlay';
+      var modal = document.createElement('div');
+      modal.className = 'modal';
+      builder(modal);
+      modalOverlay.appendChild(modal);
+      document.body.appendChild(modalOverlay);
+    }
+
+    function closeModal() {
+      if (modalOverlay) {
+        modalOverlay.remove();
+        modalOverlay = null;
+      }
+    }
+
+    function notifyRowState(name) {
+      var updaters = rowStateUpdaters[name];
+      if (!updaters || !updaters.length) return;
+      var info = {
+        name: name,
+        isActive: !!activeSessions[name],
+        of: activeSessions[name] ? String(activeSessions[name]) : '',
+        card: employeeButtons[name] || null,
+        controls: controlsMap[name] || null,
+        ofDisplay: ofDisplayMap[name] || null
+      };
+      for (var i = 0; i < updaters.length; i++) {
+        try {
+          updaters[i](info);
+        } catch (err) {
+          console.warn('ShiftBasic state updater error:', err && err.message ? err.message : err);
+        }
+      }
+    }
+
+    function triggerShiftEvent(type, name, details) {
+      if (!config) return;
+      var payload = {
+        name: name,
+        of: details && details.of ? details.of : '',
+        details: details || {}
+      };
+      try {
+        if (type === 'start' && typeof config.onShiftStarted === 'function') {
+          config.onShiftStarted(payload);
+        } else if (type === 'end' && typeof config.onShiftEnded === 'function') {
+          config.onShiftEnded(payload);
+        } else if (type === 'cancel' && typeof config.onShiftCancelled === 'function') {
+          config.onShiftCancelled(payload);
+        }
+      } catch (err) {
+        console.warn('ShiftBasic shift event error:', err && err.message ? err.message : err);
+      }
+    }
+  });
+})();
