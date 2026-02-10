@@ -1,6 +1,6 @@
 window.SECTION_CONFIG = {
   section: 'Costura',
-  webAppUrl: 'https://registo-horas.onrender.com/costura',
+  webAppUrl: 'http://192.168.1.103/costura',
   activeSessionsKey: 'costuraActiveSessions',
   queueKey: 'costuraQueue',
   names: ['Teresa', 'Antónia'],

@@ -1,5 +1,5 @@
 window.SECTION_CONFIG = {
   section: 'Acabamento',
-  webAppUrl: 'https://registo-horas.onrender.com/acabamento',
+  webAppUrl: 'http://192.168.1.103/acabamento',
   names: ['Antónia', 'Cristina', 'Diogo', 'Luana', 'Teresa', 'Pedro']
 };

@@ -1,6 +1,6 @@
 window.SECTION_CONFIG = {
   section: 'Montagem',
-  webAppUrl: 'https://registo-horas.onrender.com/montagem',
+  webAppUrl: 'http://192.168.1.103/montagem',
   names: ['Diogo', 'Pedro', 'Cristina'],
   storagePrefix: 'montagem'
 };

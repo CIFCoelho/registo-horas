@@ -214,7 +214,7 @@
 
   window.SECTION_CONFIG = {
     section: 'Pintura',
-    webAppUrl: 'https://registo-horas.onrender.com/pintura',
+    webAppUrl: 'http://192.168.1.103/pintura',
     activeSessionsKey: 'pinturaActiveSessions',
     queueKey: 'pinturaQueue',
     names: ['Pedro', 'Teresa'],
