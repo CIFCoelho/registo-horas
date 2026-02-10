@@ -24,6 +24,8 @@ const PINTURA_ISOLANTE_PROP = process.env.PINTURA_ISOLANTE_PROP || 'Isolante Apl
 const PINTURA_TAPA_PROP = process.env.PINTURA_TAPA_PROP || 'Tapa-Poros';
 const PINTURA_VERNIZ_PROP = process.env.PINTURA_VERNIZ_PROP || 'Verniz Aplicado';
 const PINTURA_AQUEC_PROP = process.env.PINTURA_AQUEC_PROP || 'Utilização do Aquecimento';
+const DASHBOARD_USER = process.env.DASHBOARD_USER || '';
+const DASHBOARD_PASS = process.env.DASHBOARD_PASS || '';
 const PORT = process.env.PORT || 8787;
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || 'https://cifcoelho.github.io';
 const KEEPALIVE_URL = process.env.KEEPALIVE_URL || '';
@@ -580,6 +582,18 @@ async function fetchAllPages(dbId, filter) {
   }
   return results;
 }
+
+// Dashboard Login — validates credentials from environment variables
+app.post('/api/dashboard/login', (req, res) => {
+  const { user, pass } = req.body || {};
+  if (!DASHBOARD_USER || !DASHBOARD_PASS) {
+    return res.status(503).json({ ok: false, error: 'Dashboard credentials not configured on server.' });
+  }
+  if (user === DASHBOARD_USER && pass === DASHBOARD_PASS) {
+    return res.json({ ok: true });
+  }
+  return res.status(401).json({ ok: false, error: 'Invalid credentials.' });
+});
 
 // 1. Dashboard Summary
 app.get('/api/dashboard/summary', async (req, res) => {
