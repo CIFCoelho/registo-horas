@@ -10,6 +10,39 @@ let ofsData = [];
 let costsData = [];
 let monthlyData = [];
 
+// Section constants
+const SECTION_COLORS = {
+    'Acabamento': '#E6692D',
+    'Estofagem': '#2c3e50',
+    'Pintura': '#28a745',
+    'Preparação': '#17a2b8',
+    'Montagem': '#ffc107'
+};
+
+const SECTION_HOUR_KEYS = {
+    'Acabamento': 'acabamentoHours',
+    'Estofagem': 'estofagemHours',
+    'Pintura': 'pinturaHours',
+    'Preparação': 'preparacaoHours',
+    'Montagem': 'montagemHours'
+};
+
+const SECTION_SHORT_NAMES = {
+    'Acabamento': 'Acab.',
+    'Estofagem': 'Estof.',
+    'Pintura': 'Pint.',
+    'Preparação': 'Prep.',
+    'Montagem': 'Mont.'
+};
+
+const SECTION_CSS_CLASSES = {
+    'Acabamento': 'acabamento',
+    'Estofagem': 'estofagem',
+    'Pintura': 'pintura',
+    'Preparação': 'preparacao',
+    'Montagem': 'montagem'
+};
+
 // ==========================================================================
 // Initialization
 // ==========================================================================
@@ -33,6 +66,19 @@ window.loadDashboard = async () => {
     document.getElementById('current-date').textContent = new Date().toLocaleDateString('pt-PT', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
     });
+
+    // Populate year selector dynamically
+    const yearSelect = document.getElementById('year-selector');
+    const thisYear = new Date().getFullYear();
+    yearSelect.innerHTML = '';
+    for (let y = thisYear; y >= 2024; y--) {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y;
+        if (y === thisYear) opt.selected = true;
+        yearSelect.appendChild(opt);
+    }
+    currentYear = thisYear;
 
     // Setup navigation
     setupNavigation();
@@ -155,6 +201,12 @@ function setupControls() {
             renderEmployeesGrid(filterBySection(employeesData));
             DashboardCharts.renderEmployeePerformance('chartEmployeePerformance', filterBySection(employeesData));
         }
+        if (ofsData.length > 0) {
+            const filteredOFs = currentSection === 'all'
+                ? ofsData
+                : ofsData.filter(of => (of[SECTION_HOUR_KEYS[currentSection]] || 0) > 0);
+            renderOFsTable(filteredOFs);
+        }
     });
 
     // Search inputs
@@ -232,8 +284,26 @@ async function loadAllData() {
 
 function updateSummaryStats() {
     const totalHours = employeesData.reduce((acc, emp) => acc + (emp.hours || 0), 0);
-    const totalUnits = employeesData.reduce((acc, emp) => acc + (emp.units || 0), 0);
-    const avgProd = totalHours > 0 ? (totalUnits / totalHours) : 0;
+    const activeEmployees = employeesData.filter(emp => (emp.hours || 0) > 0).length;
+    const totalOFs = ofsData.length;
+
+    // Find most active section
+    const sectionTotals = {};
+    employeesData.forEach(emp => {
+        if (emp.section) {
+            Object.keys(emp.section).forEach(sec => {
+                sectionTotals[sec] = (sectionTotals[sec] || 0) + (emp.section[sec] || 0);
+            });
+        }
+    });
+    let mostActiveSection = '-';
+    let maxSectionHours = 0;
+    Object.keys(sectionTotals).forEach(sec => {
+        if (sectionTotals[sec] > maxSectionHours) {
+            maxSectionHours = sectionTotals[sec];
+            mostActiveSection = sec;
+        }
+    });
 
     // Calculate total cost
     let totalCost = 0;
@@ -246,9 +316,15 @@ function updateSummaryStats() {
 
     // Update DOM
     document.getElementById('stat-total-hours').textContent = Math.round(totalHours).toLocaleString('pt-PT');
-    document.getElementById('stat-total-units').textContent = totalUnits.toLocaleString('pt-PT');
-    document.getElementById('stat-avg-prod').innerHTML = `${avgProd.toFixed(2)}<span class="unit">un/h</span>`;
-    document.getElementById('stat-total-cost').innerHTML = `${totalCost.toFixed(0).toLocaleString('pt-PT')}<span class="unit">€</span>`;
+    document.getElementById('stat-active-employees').textContent = activeEmployees;
+    document.getElementById('stat-total-ofs').textContent = totalOFs;
+    const mostActiveSectionEl = document.getElementById('stat-most-active-section');
+    if (mostActiveSection !== '-') {
+        mostActiveSectionEl.innerHTML = `${mostActiveSection}<span class="unit">${Math.round(maxSectionHours)}h</span>`;
+    } else {
+        mostActiveSectionEl.textContent = '-';
+    }
+    document.getElementById('stat-total-cost').innerHTML = `${Math.round(totalCost).toLocaleString('pt-PT')}<span class="unit">€</span>`;
 }
 
 // ==========================================================================
@@ -401,29 +477,40 @@ function renderEmployeesGrid(data) {
     const sorted = [...data].sort((a, b) => b.hours - a.hours);
 
     container.innerHTML = sorted.map(emp => {
-        const productivity = emp.hours > 0 ? (emp.units / emp.hours).toFixed(2) : 0;
         const costEntry = costsData.find(c => c.name.toLowerCase() === emp.name.toLowerCase());
         const totalCost = costEntry ? (emp.hours * costEntry.cost).toFixed(0) : '-';
 
-        // Performance badge
-        let badge = 'medium';
-        if (productivity >= 1) badge = 'high';
-        else if (productivity < 0.5) badge = 'low';
+        // Build section tags
+        let sectionTags = '';
+        if (emp.section) {
+            Object.keys(emp.section).forEach(sec => {
+                if (emp.section[sec] > 0 && SECTION_CSS_CLASSES[sec]) {
+                    sectionTags += `<span class="section-tag ${SECTION_CSS_CLASSES[sec]}">${SECTION_SHORT_NAMES[sec] || sec}</span>`;
+                }
+            });
+        }
+
+        // Build section breakdown text (only sections with data)
+        let breakdownParts = [];
+        if (emp.section) {
+            Object.keys(emp.section).forEach(sec => {
+                if (emp.section[sec] > 0) {
+                    breakdownParts.push(`${SECTION_SHORT_NAMES[sec] || sec}: ${Math.round(emp.section[sec])}h`);
+                }
+            });
+        }
+        const breakdownText = breakdownParts.length > 0 ? breakdownParts.join(' | ') : '';
 
         return `
             <div class="employee-card" onclick="showEmployeeDetail('${emp.name}')">
                 <div class="employee-card-header">
                     <h3>${emp.name}</h3>
-                    <span class="employee-badge ${badge}">${productivity} un/h</span>
+                    <div>${sectionTags}</div>
                 </div>
                 <div class="employee-stats">
                     <div class="employee-stat">
                         <div class="employee-stat-value">${Math.round(emp.hours)}</div>
-                        <div class="employee-stat-label">Horas</div>
-                    </div>
-                    <div class="employee-stat">
-                        <div class="employee-stat-value">${emp.units}</div>
-                        <div class="employee-stat-label">Unidades</div>
+                        <div class="employee-stat-label">Total Horas</div>
                     </div>
                     <div class="employee-stat">
                         <div class="employee-stat-value">${costEntry?.cost || '-'}</div>
@@ -433,6 +520,7 @@ function renderEmployeesGrid(data) {
                         <div class="employee-stat-value">${totalCost}</div>
                         <div class="employee-stat-label">Custo Total</div>
                     </div>
+                    ${breakdownText ? `<div class="section-breakdown">${breakdownText}</div>` : ''}
                 </div>
             </div>
         `;
@@ -469,13 +557,16 @@ function renderOFsTable(data) {
         return;
     }
 
-    // Calculate average cost per hour (simplified)
+    // Calculate average cost per hour (simplified estimate)
     const avgCostPerHour = costsData.length > 0
         ? costsData.reduce((acc, c) => acc + c.cost, 0) / costsData.length
-        : 10;
+        : 0;
 
     tbody.innerHTML = data.map(of => {
-        const estimatedCost = of.totalHours * avgCostPerHour;
+        const estimatedCost = avgCostPerHour > 0 ? of.totalHours * avgCostPerHour : 0;
+        const costDisplay = avgCostPerHour > 0
+            ? `<span title="Média: ${avgCostPerHour.toFixed(1)}€/h × ${(of.totalHours || 0).toFixed(1)}h">~${estimatedCost.toFixed(0)}€</span>`
+            : '-';
         return `
             <tr onclick="showOFDetail(${of.of})" style="cursor: pointer;">
                 <td><strong>OF ${of.of}</strong></td>
@@ -485,7 +576,7 @@ function renderOFsTable(data) {
                 <td>${of.preparacaoHours?.toFixed(1) || 0}h</td>
                 <td>${of.montagemHours?.toFixed(1) || 0}h</td>
                 <td><strong>${of.totalHours?.toFixed(1) || 0}h</strong></td>
-                <td>${estimatedCost.toFixed(0)}€</td>
+                <td>${costDisplay}</td>
                 <td>
                     <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); showOFDetail(${of.of})">
                         Ver Detalhes
@@ -579,11 +670,15 @@ window.showOFDetail = async (ofNum) => {
         const res = await API.getOFDetail(ofNum);
         const d = res.data;
 
-        const totalAcab = d.acabamento.reduce((acc, p) => acc + (new Date(p.end) - new Date(p.start)) / 36e5, 0);
-        const totalEstof = d.estofagem.reduce((acc, p) => acc + (new Date(p.end) - new Date(p.start)) / 36e5, 0);
-        const totalPint = d.pintura?.reduce((acc, p) => acc + (new Date(p.end) - new Date(p.start)) / 36e5, 0) || 0;
-        const totalPrep = d.preparacao?.reduce((acc, p) => acc + (new Date(p.end) - new Date(p.start)) / 36e5, 0) || 0;
-        const totalMont = d.montagem?.reduce((acc, p) => acc + (new Date(p.end) - new Date(p.start)) / 36e5, 0) || 0;
+        const safeHours = (acc, p) => {
+            if (!p.end || !p.start) return acc;
+            return acc + (new Date(p.end) - new Date(p.start)) / 36e5;
+        };
+        const totalAcab = d.acabamento.reduce(safeHours, 0);
+        const totalEstof = d.estofagem.reduce(safeHours, 0);
+        const totalPint = d.pintura?.reduce(safeHours, 0) || 0;
+        const totalPrep = d.preparacao?.reduce(safeHours, 0) || 0;
+        const totalMont = d.montagem?.reduce(safeHours, 0) || 0;
         const totalHours = totalAcab + totalEstof + totalPint + totalPrep + totalMont;
         const totalUnits = d.units?.length || 0;
         const productivity = totalHours > 0 ? (totalUnits / totalHours).toFixed(2) : 0;
@@ -598,6 +693,7 @@ window.showOFDetail = async (ofNum) => {
             ...(d.montagem || [])
         ];
         allShifts.forEach(shift => {
+            if (!shift.end || !shift.start) return;
             const hours = (new Date(shift.end) - new Date(shift.start)) / 36e5;
             const costEntry = costsData.find(c => c.name.toLowerCase() === shift.funcionario.toLowerCase());
             if (costEntry) {
@@ -704,7 +800,10 @@ window.showEmployeeDetail = async (name) => {
         const res = await API.getEmployeeDetail(name, currentYear);
         const d = res.data;
 
-        const totalHours = d.history.reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
+        const totalHours = d.history.reduce((acc, h) => {
+            if (!h.end || !h.start) return acc;
+            return acc + (new Date(h.end) - new Date(h.start)) / 36e5;
+        }, 0);
 
         // Get units from global data
         const empData = employeesData.find(e => e.name.toLowerCase() === name.toLowerCase());
@@ -717,11 +816,15 @@ window.showEmployeeDetail = async (name) => {
         const totalCost = totalHours * costPerHour;
 
         // Section breakdown
-        const acabHours = d.history.filter(h => h.section === 'Acabamento').reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
-        const estofHours = d.history.filter(h => h.section === 'Estofagem').reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
-        const pintHours = d.history.filter(h => h.section === 'Pintura').reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
-        const prepHours = d.history.filter(h => h.section === 'Preparação').reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
-        const montHours = d.history.filter(h => h.section === 'Montagem').reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
+        const safeSum = (acc, h) => {
+            if (!h.end || !h.start) return acc;
+            return acc + (new Date(h.end) - new Date(h.start)) / 36e5;
+        };
+        const acabHours = d.history.filter(h => h.section === 'Acabamento').reduce(safeSum, 0);
+        const estofHours = d.history.filter(h => h.section === 'Estofagem').reduce(safeSum, 0);
+        const pintHours = d.history.filter(h => h.section === 'Pintura').reduce(safeSum, 0);
+        const prepHours = d.history.filter(h => h.section === 'Preparação').reduce(safeSum, 0);
+        const montHours = d.history.filter(h => h.section === 'Montagem').reduce(safeSum, 0);
 
         subtitle.textContent = `${d.history.length} turnos registados em ${currentYear}`;
 
@@ -783,11 +886,14 @@ window.showEmployeeDetail = async (name) => {
                     </thead>
                     <tbody>
                         ${d.history.map(h => {
-            const hours = (new Date(h.end) - new Date(h.start)) / 36e5;
+            const hStart = h.start ? new Date(h.start) : null;
+            const hEnd = h.end ? new Date(h.end) : null;
+            const hours = (hEnd && hStart) ? (hEnd - hStart) / 36e5 : 0;
             const cost = hours * costPerHour;
+            const sectionColor = SECTION_COLORS[h.section] || '#ccc';
             return `
-                                <tr onclick="showOFDetail(${h.of})" style="cursor: pointer;">
-                                    <td>${new Date(h.start).toLocaleDateString('pt-PT')}</td>
+                                <tr onclick="showOFDetail(${h.of})" style="cursor: pointer; border-left: 4px solid ${sectionColor};">
+                                    <td>${hStart ? hStart.toLocaleDateString('pt-PT') : '-'}</td>
                                     <td>${h.of || '-'}</td>
                                     <td>${h.section}</td>
                                     <td>${hours.toFixed(2)}h</td>
@@ -806,16 +912,20 @@ window.showEmployeeDetail = async (name) => {
 };
 
 function renderShiftRow(r, section) {
-    const hours = (new Date(r.end) - new Date(r.start)) / 36e5;
+    const startDate = r.start ? new Date(r.start) : null;
+    const endDate = r.end ? new Date(r.end) : null;
+    const hours = (endDate && startDate) ? (endDate - startDate) / 36e5 : 0;
     const costEntry = costsData.find(c => c.name.toLowerCase() === r.funcionario.toLowerCase());
     const cost = costEntry ? (hours * costEntry.cost).toFixed(0) : '-';
+    const endDisplay = endDate ? endDate.toLocaleTimeString('pt-PT') : 'Em curso';
+    const sectionColor = SECTION_COLORS[section] || '#ccc';
 
     return `
-        <tr onclick="showEmployeeDetail('${r.funcionario}')" style="cursor: pointer;">
+        <tr onclick="showEmployeeDetail('${r.funcionario}')" style="cursor: pointer; border-left: 4px solid ${sectionColor};">
             <td>${section}</td>
             <td>${r.funcionario}</td>
-            <td>${new Date(r.start).toLocaleString('pt-PT')}</td>
-            <td>${new Date(r.end).toLocaleTimeString('pt-PT')}</td>
+            <td>${startDate ? startDate.toLocaleString('pt-PT') : '-'}</td>
+            <td>${endDisplay}</td>
             <td>${hours.toFixed(2)}h</td>
             <td>${cost}€</td>
         </tr>

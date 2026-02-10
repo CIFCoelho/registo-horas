@@ -99,8 +99,6 @@
                     <label class="control-label">
                         <span>Ano:</span>
                         <select id="year-selector" class="select-control">
-                            <option value="2025" selected>2025</option>
-                            <option value="2024">2024</option>
                         </select>
                     </label>
                     <label class="control-label" id="section-filter-container">
@@ -147,19 +145,25 @@
                         </div>
                     </div>
                     <div class="stat-card">
-                        <h3>Total Unidades</h3>
-                        <div class="value" id="stat-total-units">
-                            <span class="spinner-small"></span>
-                        </div>
-                    </div>
-                    <div class="stat-card highlight">
-                        <h3>Produtividade Média</h3>
-                        <div class="value" id="stat-avg-prod">
+                        <h3>Funcionários Ativos</h3>
+                        <div class="value" id="stat-active-employees">
                             <span class="spinner-small"></span>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <h3>Custo Total Estimado</h3>
+                        <h3>OFs em Curso</h3>
+                        <div class="value" id="stat-total-ofs">
+                            <span class="spinner-small"></span>
+                        </div>
+                    </div>
+                    <div class="stat-card highlight">
+                        <h3>Secção Mais Ativa</h3>
+                        <div class="value" id="stat-most-active-section">
+                            <span class="spinner-small"></span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <h3 title="Estimativa baseada nos custos/hora configurados">Custo Total Estimado</h3>
                         <div class="value" id="stat-total-cost">
                             <span class="spinner-small"></span>
                         </div>
@@ -238,7 +242,7 @@
                                 <th>Horas Preparação</th>
                                 <th>Horas Montagem</th>
                                 <th>Total Horas</th>
-                                <th>Custo Estimado</th>
+                                <th title="Estimativa baseada no custo médio dos funcionários">Custo Est. ℹ️</th>
                                 <th>Ações</th>
                             </tr>
                         </thead>
@@ -307,7 +311,7 @@
 
         <!-- Footer -->
         <footer class="dashboard-footer">
-            <p>Certoma © 2025 - Sistema de Registo de Produtividade</p>
+            <p>Certoma — Sistema de Registo de Produtividade</p>
         </footer>
 
     </div>
