@@ -587,14 +587,29 @@ app.get('/api/dashboard/summary', async (req, res) => {
     const activeAcabamento = await listOpenShifts(ACABAMENTO_DB_ID);
     const activeEstofagem = await listOpenShifts(ESTOFAGEM_TEMPO_DB_ID);
 
-    // Simple stats for today could be added later or computed on client from detailed feeds
-    // For now, return active workers which is the critical real-time component
+    let activePintura = [];
+    try {
+      if (PINTURA_DB_ID) activePintura = await listOpenShifts(PINTURA_DB_ID);
+    } catch (e) { console.warn('[dashboard/summary] Pintura query failed:', e.message); }
+
+    let activePreparacao = [];
+    try {
+      if (PREPARACAO_MADEIRAS_DB_ID) activePreparacao = await listOpenShiftsTextOF(PREPARACAO_MADEIRAS_DB_ID);
+    } catch (e) { console.warn('[dashboard/summary] Preparação query failed:', e.message); }
+
+    let activeMontagem = [];
+    try {
+      if (MONTAGEM_DB_ID) activeMontagem = await listOpenShifts(MONTAGEM_DB_ID);
+    } catch (e) { console.warn('[dashboard/summary] Montagem query failed:', e.message); }
 
     res.json({
       ok: true,
       activeWorkers: {
         acabamento: activeAcabamento,
-        estofagem: activeEstofagem
+        estofagem: activeEstofagem,
+        pintura: activePintura,
+        preparacao: activePreparacao,
+        montagem: activeMontagem
       }
     });
   } catch (e) {
@@ -626,10 +641,21 @@ app.get('/api/dashboard/employees', async (req, res) => {
       ]
     };
 
-    const [acabamentoShifts, estofagemShifts, units] = await Promise.all([
+    const fetchSafe = async (dbId, filter) => {
+      if (!dbId) return [];
+      try { return await fetchAllPages(dbId, filter); } catch (e) {
+        console.warn('[dashboard/employees] query failed for DB', dbId, e.message);
+        return [];
+      }
+    };
+
+    const [acabamentoShifts, estofagemShifts, units, pinturaShifts, preparacaoShifts, montagemShifts] = await Promise.all([
       fetchAllPages(ACABAMENTO_DB_ID, shiftFilter),
       fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, shiftFilter),
-      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, dateFilter) // Units often use 'Data'
+      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, dateFilter), // Units often use 'Data'
+      fetchSafe(PINTURA_DB_ID, shiftFilter),
+      fetchSafe(PREPARACAO_MADEIRAS_DB_ID, shiftFilter),
+      fetchSafe(MONTAGEM_DB_ID, shiftFilter)
     ]);
 
     // Process data into summary stats
@@ -650,6 +676,9 @@ app.get('/api/dashboard/employees', async (req, res) => {
 
     acabamentoShifts.forEach(p => processShift(p, 'Acabamento'));
     estofagemShifts.forEach(p => processShift(p, 'Estofagem'));
+    pinturaShifts.forEach(p => processShift(p, 'Pintura'));
+    preparacaoShifts.forEach(p => processShift(p, 'Preparação'));
+    montagemShifts.forEach(p => processShift(p, 'Montagem'));
 
     units.forEach(page => {
       const cru = page.properties?.['Cru Por:']?.rich_text?.[0]?.plain_text || '';
@@ -685,6 +714,9 @@ app.get('/api/dashboard/employees', async (req, res) => {
 
     acabamentoShifts.forEach(processMonthlyShift);
     estofagemShifts.forEach(processMonthlyShift);
+    pinturaShifts.forEach(processMonthlyShift);
+    preparacaoShifts.forEach(processMonthlyShift);
+    montagemShifts.forEach(processMonthlyShift);
 
     // Add units per month
     units.forEach(page => {
@@ -723,12 +755,31 @@ app.get('/api/dashboard/ofs', async (req, res) => {
       date: { on_or_after: startOfYear }
     };
 
-    const [acabamentoShifts, estofagemShifts] = await Promise.all([
+    const fetchSafe = async (dbId, f) => {
+      if (!dbId) return [];
+      try { return await fetchAllPages(dbId, f); } catch (e) {
+        console.warn('[dashboard/ofs] query failed for DB', dbId, e.message);
+        return [];
+      }
+    };
+
+    const [acabamentoShifts, estofagemShifts, pinturaShifts, montagemShifts, preparacaoShifts] = await Promise.all([
       fetchAllPages(ACABAMENTO_DB_ID, filter),
-      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter)
+      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter),
+      fetchSafe(PINTURA_DB_ID, filter),
+      fetchSafe(MONTAGEM_DB_ID, filter),
+      fetchSafe(PREPARACAO_MADEIRAS_DB_ID, filter)
     ]);
 
     const ofStats = {};
+
+    const ensureOf = (of) => {
+      if (!ofStats[of]) ofStats[of] = {
+        of, totalHours: 0,
+        acabamentoHours: 0, estofagemHours: 0,
+        pinturaHours: 0, preparacaoHours: 0, montagemHours: 0
+      };
+    };
 
     const processShift = (page, section) => {
       const of = page.properties?.['Ordem de Fabrico']?.number;
@@ -742,14 +793,43 @@ app.get('/api/dashboard/ofs', async (req, res) => {
         duration = (new Date(end) - new Date(start)) / (1000 * 60 * 60);
       }
 
-      if (!ofStats[of]) ofStats[of] = { of, totalHours: 0, acabamentoHours: 0, estofagemHours: 0 };
+      ensureOf(of);
       ofStats[of].totalHours += duration;
       if (section === 'acabamento') ofStats[of].acabamentoHours += duration;
       if (section === 'estofagem') ofStats[of].estofagemHours += duration;
+      if (section === 'pintura') ofStats[of].pinturaHours += duration;
+      if (section === 'montagem') ofStats[of].montagemHours += duration;
     };
 
     acabamentoShifts.forEach(p => processShift(p, 'acabamento'));
     estofagemShifts.forEach(p => processShift(p, 'estofagem'));
+    pinturaShifts.forEach(p => processShift(p, 'pintura'));
+    montagemShifts.forEach(p => processShift(p, 'montagem'));
+
+    // Preparação: OF is rich_text and may contain multiple OFs ("123, 456")
+    preparacaoShifts.forEach(page => {
+      const ofText = page.properties?.['Ordem de Fabrico']?.rich_text?.[0]?.plain_text || '';
+      if (!ofText) return;
+
+      const start = page.properties?.['Início do Turno']?.date?.start;
+      const end = page.properties?.['Final do Turno']?.date?.start;
+
+      let duration = 0;
+      if (start && end) {
+        duration = (new Date(end) - new Date(start)) / (1000 * 60 * 60);
+      }
+
+      // Split by comma and credit full hours to each OF
+      const ofNumbers = ofText.split(',')
+        .map(s => parseInt(s.trim(), 10))
+        .filter(n => !isNaN(n));
+
+      ofNumbers.forEach(of => {
+        ensureOf(of);
+        ofStats[of].totalHours += duration;
+        ofStats[of].preparacaoHours += duration;
+      });
+    });
 
     res.json({ ok: true, data: Object.values(ofStats).sort((a, b) => b.of - a.of) });
   } catch (e) {
@@ -839,28 +919,45 @@ app.get('/api/dashboard/of/:ofNumber', async (req, res) => {
       number: { equals: ofNumber }
     };
 
-    const [acabamentoShifts, estofagemShifts, units] = await Promise.all([
+    const fetchSafe = async (dbId, f) => {
+      if (!dbId) return [];
+      try { return await fetchAllPages(dbId, f); } catch (e) {
+        console.warn('[dashboard/of] query failed for DB', dbId, e.message);
+        return [];
+      }
+    };
+
+    // Preparação uses rich_text for OF, so needs a different filter
+    const preparacaoFilter = {
+      property: 'Ordem de Fabrico',
+      rich_text: { contains: String(ofNumber) }
+    };
+
+    const [acabamentoShifts, estofagemShifts, units, pinturaShifts, montagemShifts, preparacaoShifts] = await Promise.all([
       fetchAllPages(ACABAMENTO_DB_ID, filter),
       fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter),
-      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, filter)
+      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, filter),
+      fetchSafe(PINTURA_DB_ID, filter),
+      fetchSafe(MONTAGEM_DB_ID, filter),
+      fetchSafe(PREPARACAO_MADEIRAS_DB_ID, preparacaoFilter)
     ]);
+
+    const mapShift = (p) => ({
+      id: p.id,
+      funcionario: p.properties?.['Funcionário']?.title?.[0]?.plain_text,
+      start: p.properties?.['Início do Turno']?.date?.start,
+      end: p.properties?.['Final do Turno']?.date?.start,
+    });
 
     res.json({
       ok: true,
       data: {
         of: ofNumber,
-        acabamento: acabamentoShifts.map(p => ({
-          id: p.id,
-          funcionario: p.properties?.['Funcionário']?.title?.[0]?.plain_text,
-          start: p.properties?.['Início do Turno']?.date?.start,
-          end: p.properties?.['Final do Turno']?.date?.start,
-        })),
-        estofagem: estofagemShifts.map(p => ({
-          id: p.id,
-          funcionario: p.properties?.['Funcionário']?.title?.[0]?.plain_text,
-          start: p.properties?.['Início do Turno']?.date?.start,
-          end: p.properties?.['Final do Turno']?.date?.start,
-        })),
+        acabamento: acabamentoShifts.map(mapShift),
+        estofagem: estofagemShifts.map(mapShift),
+        pintura: pinturaShifts.map(mapShift),
+        preparacao: preparacaoShifts.map(mapShift),
+        montagem: montagemShifts.map(mapShift),
         units: units.map(p => ({
           id: p.id,
           cru: p.properties?.['Cru Por:']?.rich_text?.[0]?.plain_text,
@@ -899,9 +996,20 @@ app.get('/api/dashboard/employee/:name', async (req, res) => {
     // We'll skip unit details for this specific endpoint for now, or fetch all and filter (expensive).
     // Let's stick to Shift History.
 
-    const [acabamentoShifts, estofagemShifts] = await Promise.all([
+    const fetchSafe = async (dbId, f) => {
+      if (!dbId) return [];
+      try { return await fetchAllPages(dbId, f); } catch (e) {
+        console.warn('[dashboard/employee] query failed for DB', dbId, e.message);
+        return [];
+      }
+    };
+
+    const [acabamentoShifts, estofagemShifts, pinturaShifts, preparacaoShifts, montagemShifts] = await Promise.all([
       fetchAllPages(ACABAMENTO_DB_ID, filter),
-      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter)
+      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter),
+      fetchSafe(PINTURA_DB_ID, filter),
+      fetchSafe(PREPARACAO_MADEIRAS_DB_ID, filter),
+      fetchSafe(MONTAGEM_DB_ID, filter)
     ]);
 
     const formatShift = (p, section) => ({
@@ -912,9 +1020,20 @@ app.get('/api/dashboard/employee/:name', async (req, res) => {
       section
     });
 
+    const formatShiftTextOF = (p, section) => ({
+      id: p.id,
+      of: p.properties?.['Ordem de Fabrico']?.rich_text?.[0]?.plain_text || null,
+      start: p.properties?.['Início do Turno']?.date?.start,
+      end: p.properties?.['Final do Turno']?.date?.start,
+      section
+    });
+
     const shiftHistory = [
       ...acabamentoShifts.map(p => formatShift(p, 'Acabamento')),
-      ...estofagemShifts.map(p => formatShift(p, 'Estofagem'))
+      ...estofagemShifts.map(p => formatShift(p, 'Estofagem')),
+      ...pinturaShifts.map(p => formatShift(p, 'Pintura')),
+      ...preparacaoShifts.map(p => formatShiftTextOF(p, 'Preparação')),
+      ...montagemShifts.map(p => formatShift(p, 'Montagem'))
     ].sort((a, b) => new Date(b.start) - new Date(a.start));
 
     res.json({
