@@ -1,6 +1,9 @@
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:8787/api/dashboard'
-    : 'https://registo-horas.onrender.com/api/dashboard';
+const API_BASE = (() => {
+    const h = window.location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:8787/api/dashboard';
+    if (h === '192.168.1.103') return 'http://192.168.1.103/api/dashboard';
+    return window.location.origin + '/api/dashboard';
+})();
 
 const API = {
     async get(endpoint, params = {}) {
