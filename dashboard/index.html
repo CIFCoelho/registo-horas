@@ -107,8 +107,11 @@
                         <span>Secção:</span>
                         <select id="section-filter" class="select-control">
                             <option value="all">Todas</option>
-                            <option value="acabamento">Acabamento</option>
-                            <option value="estofagem">Estofagem</option>
+                            <option value="Acabamento">Acabamento</option>
+                            <option value="Estofagem">Estofagem</option>
+                            <option value="Pintura">Pintura</option>
+                            <option value="Preparação">Preparação</option>
+                            <option value="Montagem">Montagem</option>
                         </select>
                     </label>
                     <button class="btn btn-secondary" onclick="window.location.reload()">
@@ -231,6 +234,9 @@
                                 <th>OF</th>
                                 <th>Horas Acabamento</th>
                                 <th>Horas Estofagem</th>
+                                <th>Horas Pintura</th>
+                                <th>Horas Preparação</th>
+                                <th>Horas Montagem</th>
                                 <th>Total Horas</th>
                                 <th>Custo Estimado</th>
                                 <th>Ações</th>
@@ -238,7 +244,7 @@
                         </thead>
                         <tbody id="ofs-table-body">
                             <tr>
-                                <td colspan="6" class="loading-cell">
+                                <td colspan="9" class="loading-cell">
                                     <div class="spinner"></div>
                                     <span>A carregar...</span>
                                 </td>

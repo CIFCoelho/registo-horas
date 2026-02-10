@@ -90,13 +90,28 @@ const DashboardCharts = {
                 datasets: [
                     {
                         label: 'Acabamento (h)',
-                        data: recent.map(d => d.acabamentoHours),
+                        data: recent.map(d => d.acabamentoHours || 0),
                         backgroundColor: '#E6692D'
                     },
                     {
                         label: 'Estofagem (h)',
-                        data: recent.map(d => d.estofagemHours),
+                        data: recent.map(d => d.estofagemHours || 0),
                         backgroundColor: '#2c3e50'
+                    },
+                    {
+                        label: 'Pintura (h)',
+                        data: recent.map(d => d.pinturaHours || 0),
+                        backgroundColor: '#28a745'
+                    },
+                    {
+                        label: 'Preparação (h)',
+                        data: recent.map(d => d.preparacaoHours || 0),
+                        backgroundColor: '#17a2b8'
+                    },
+                    {
+                        label: 'Montagem (h)',
+                        data: recent.map(d => d.montagemHours || 0),
+                        backgroundColor: '#ffc107'
                     }
                 ]
             },

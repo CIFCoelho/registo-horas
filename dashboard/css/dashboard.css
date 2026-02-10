@@ -391,6 +391,18 @@ body {
     border-left: 4px solid var(--info);
 }
 
+.worker-badge.pintura {
+    border-left: 4px solid #28a745;
+}
+
+.worker-badge.preparacao {
+    border-left: 4px solid #17a2b8;
+}
+
+.worker-badge.montagem {
+    border-left: 4px solid #ffc107;
+}
+
 .worker-info strong {
     display: block;
     font-size: 1em;

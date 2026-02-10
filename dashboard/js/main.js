@@ -178,12 +178,7 @@ function setupControls() {
 
 function filterBySection(data) {
     if (currentSection === 'all') return data;
-    return data.filter(item => {
-        if (item.section && item.section[currentSection === 'acabamento' ? 'Acabamento' : 'Estofagem']) {
-            return true;
-        }
-        return false;
-    });
+    return data.filter(item => item.section && item.section[currentSection] > 0);
 }
 
 // ==========================================================================
@@ -270,8 +265,17 @@ async function renderActiveWorkers() {
 
         const acabamento = res.activeWorkers?.acabamento || [];
         const estofagem = res.activeWorkers?.estofagem || [];
+        const pintura = res.activeWorkers?.pintura || [];
+        const preparacao = res.activeWorkers?.preparacao || [];
+        const montagem = res.activeWorkers?.montagem || [];
 
-        if (acabamento.length === 0 && estofagem.length === 0) {
+        if (
+            acabamento.length === 0
+            && estofagem.length === 0
+            && pintura.length === 0
+            && preparacao.length === 0
+            && montagem.length === 0
+        ) {
             container.innerHTML = `
                 <div style="color: var(--text-light); margin: auto; text-align: center; padding: 20px;">
                     <p style="font-size: 1.2em; margin-bottom: 5px;">😴</p>
@@ -304,6 +308,45 @@ async function renderActiveWorkers() {
                         <strong>${w.funcionario}</strong>
                         <span>Estofagem • OF ${w.of || 'Geral'}</span>
                         <span class="worker-time" style="color: var(--info);">⏱ ${elapsed}</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        pintura.forEach(w => {
+            const elapsed = getElapsedTime(w.start);
+            html += `
+                <div class="worker-badge pintura" onclick="showEmployeeDetail('${w.funcionario}')">
+                    <div class="worker-info">
+                        <strong>${w.funcionario}</strong>
+                        <span>Pintura • OF ${w.of || 'Geral'}</span>
+                        <span class="worker-time">⏱ ${elapsed}</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        preparacao.forEach(w => {
+            const elapsed = getElapsedTime(w.start);
+            html += `
+                <div class="worker-badge preparacao" onclick="showEmployeeDetail('${w.funcionario}')">
+                    <div class="worker-info">
+                        <strong>${w.funcionario}</strong>
+                        <span>Preparação • OF ${w.of || 'Geral'}</span>
+                        <span class="worker-time">⏱ ${elapsed}</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        montagem.forEach(w => {
+            const elapsed = getElapsedTime(w.start);
+            html += `
+                <div class="worker-badge montagem" onclick="showEmployeeDetail('${w.funcionario}')">
+                    <div class="worker-info">
+                        <strong>${w.funcionario}</strong>
+                        <span>Montagem • OF ${w.of || 'Geral'}</span>
+                        <span class="worker-time">⏱ ${elapsed}</span>
                     </div>
                 </div>
             `;
@@ -420,7 +463,7 @@ function renderOFsTable(data) {
     if (data.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="6" class="loading-cell">Sem OFs para ${currentYear}</td>
+                <td colspan="9" class="loading-cell">Sem OFs para ${currentYear}</td>
             </tr>
         `;
         return;
@@ -438,6 +481,9 @@ function renderOFsTable(data) {
                 <td><strong>OF ${of.of}</strong></td>
                 <td>${of.acabamentoHours?.toFixed(1) || 0}h</td>
                 <td>${of.estofagemHours?.toFixed(1) || 0}h</td>
+                <td>${of.pinturaHours?.toFixed(1) || 0}h</td>
+                <td>${of.preparacaoHours?.toFixed(1) || 0}h</td>
+                <td>${of.montagemHours?.toFixed(1) || 0}h</td>
                 <td><strong>${of.totalHours?.toFixed(1) || 0}h</strong></td>
                 <td>${estimatedCost.toFixed(0)}€</td>
                 <td>
@@ -535,13 +581,22 @@ window.showOFDetail = async (ofNum) => {
 
         const totalAcab = d.acabamento.reduce((acc, p) => acc + (new Date(p.end) - new Date(p.start)) / 36e5, 0);
         const totalEstof = d.estofagem.reduce((acc, p) => acc + (new Date(p.end) - new Date(p.start)) / 36e5, 0);
-        const totalHours = totalAcab + totalEstof;
+        const totalPint = d.pintura?.reduce((acc, p) => acc + (new Date(p.end) - new Date(p.start)) / 36e5, 0) || 0;
+        const totalPrep = d.preparacao?.reduce((acc, p) => acc + (new Date(p.end) - new Date(p.start)) / 36e5, 0) || 0;
+        const totalMont = d.montagem?.reduce((acc, p) => acc + (new Date(p.end) - new Date(p.start)) / 36e5, 0) || 0;
+        const totalHours = totalAcab + totalEstof + totalPint + totalPrep + totalMont;
         const totalUnits = d.units?.length || 0;
         const productivity = totalHours > 0 ? (totalUnits / totalHours).toFixed(2) : 0;
 
         // Calculate cost
         let totalCost = 0;
-        const allShifts = [...d.acabamento, ...d.estofagem];
+        const allShifts = [
+            ...d.acabamento,
+            ...d.estofagem,
+            ...(d.pintura || []),
+            ...(d.preparacao || []),
+            ...(d.montagem || [])
+        ];
         allShifts.forEach(shift => {
             const hours = (new Date(shift.end) - new Date(shift.start)) / 36e5;
             const costEntry = costsData.find(c => c.name.toLowerCase() === shift.funcionario.toLowerCase());
@@ -563,6 +618,18 @@ window.showOFDetail = async (ofNum) => {
                 <div class="detail-stat-card">
                     <h4>Horas Estofagem</h4>
                     <div class="value info">${totalEstof.toFixed(1)}h</div>
+                </div>
+                <div class="detail-stat-card">
+                    <h4>Horas Pintura</h4>
+                    <div class="value success">${totalPint.toFixed(1)}h</div>
+                </div>
+                <div class="detail-stat-card">
+                    <h4>Horas Preparação</h4>
+                    <div class="value info">${totalPrep.toFixed(1)}h</div>
+                </div>
+                <div class="detail-stat-card">
+                    <h4>Horas Montagem</h4>
+                    <div class="value">${totalMont.toFixed(1)}h</div>
                 </div>
                 <div class="detail-stat-card">
                     <h4>Total Horas</h4>
@@ -602,6 +669,9 @@ window.showOFDetail = async (ofNum) => {
                     <tbody>
                         ${d.acabamento.map(r => renderShiftRow(r, 'Acabamento')).join('')}
                         ${d.estofagem.map(r => renderShiftRow(r, 'Estofagem')).join('')}
+                        ${d.pintura?.map(r => renderShiftRow(r, 'Pintura')).join('') || ''}
+                        ${d.preparacao?.map(r => renderShiftRow(r, 'Preparação')).join('') || ''}
+                        ${d.montagem?.map(r => renderShiftRow(r, 'Montagem')).join('') || ''}
                     </tbody>
                 </table>
             </div>
@@ -649,6 +719,9 @@ window.showEmployeeDetail = async (name) => {
         // Section breakdown
         const acabHours = d.history.filter(h => h.section === 'Acabamento').reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
         const estofHours = d.history.filter(h => h.section === 'Estofagem').reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
+        const pintHours = d.history.filter(h => h.section === 'Pintura').reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
+        const prepHours = d.history.filter(h => h.section === 'Preparação').reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
+        const montHours = d.history.filter(h => h.section === 'Montagem').reduce((acc, h) => acc + (new Date(h.end) - new Date(h.start)) / 36e5, 0);
 
         subtitle.textContent = `${d.history.length} turnos registados em ${currentYear}`;
 
@@ -681,6 +754,18 @@ window.showEmployeeDetail = async (name) => {
                 <div class="detail-stat-card">
                     <h4>Estofagem</h4>
                     <div class="value info">${estofHours.toFixed(1)}h</div>
+                </div>
+                <div class="detail-stat-card">
+                    <h4>Pintura</h4>
+                    <div class="value success">${pintHours.toFixed(1)}h</div>
+                </div>
+                <div class="detail-stat-card">
+                    <h4>Preparação</h4>
+                    <div class="value info">${prepHours.toFixed(1)}h</div>
+                </div>
+                <div class="detail-stat-card">
+                    <h4>Montagem</h4>
+                    <div class="value">${montHours.toFixed(1)}h</div>
                 </div>
             </div>
 
