@@ -170,9 +170,9 @@ function switchView(viewName) {
     document.getElementById('page-title').textContent = titles[viewName] || 'Dashboard';
 
     // Load view-specific data if needed
-    if (viewName === 'employees' && employeesData.length === 0) {
+    if (viewName === 'employees' && (employeesData.length === 0 || costsData.length === 0)) {
         loadEmployeesView();
-    } else if (viewName === 'ofs' && ofsData.length === 0) {
+    } else if (viewName === 'ofs' && (ofsData.length === 0 || costsData.length === 0)) {
         loadOFsView();
     } else if (viewName === 'costs') {
         loadCostsView();
@@ -239,17 +239,26 @@ function filterBySection(data) {
 
 async function loadAllData() {
     try {
-        // Load all data in parallel
-        const [employeesRes, ofsRes, costsRes] = await Promise.all([
+        document.getElementById('stat-total-hours').innerHTML = '<span class="spinner-small"></span>';
+        document.getElementById('stat-active-employees').innerHTML = '<span class="spinner-small"></span>';
+        document.getElementById('stat-total-ofs').innerHTML = '<span class="spinner-small"></span>';
+        document.getElementById('stat-most-active-section').innerHTML = '<span class="spinner-small"></span>';
+        document.getElementById('stat-total-cost').innerHTML = '<span class="spinner-small"></span>';
+
+        const [employeesResult, ofsResult, costsResult] = await Promise.allSettled([
             API.getEmployees(currentYear),
             API.getOFs(currentYear),
             API.getCosts()
         ]);
 
-        employeesData = employeesRes.data || [];
-        ofsData = ofsRes.data || [];
-        costsData = costsRes.data || [];
-        monthlyData = employeesRes.monthly || [];
+        employeesData = employeesResult.status === 'fulfilled' ? (employeesResult.value.data || []) : [];
+        ofsData = ofsResult.status === 'fulfilled' ? (ofsResult.value.data || []) : [];
+        costsData = costsResult.status === 'fulfilled' ? (costsResult.value.data || []) : [];
+        monthlyData = employeesResult.status === 'fulfilled' ? (employeesResult.value.monthly || []) : [];
+
+        if (employeesResult.status === 'rejected') showToast('Erro ao carregar funcionários', 'warning');
+        if (ofsResult.status === 'rejected') showToast('Erro ao carregar OFs', 'warning');
+        if (costsResult.status === 'rejected') showToast('Erro ao carregar custos', 'warning');
 
         // Update summary stats
         updateSummaryStats();
@@ -448,16 +457,22 @@ function getElapsedTime(startDate) {
 // ==========================================================================
 
 async function loadEmployeesView() {
-    if (employeesData.length === 0) {
+    if (employeesData.length === 0 || costsData.length === 0) {
         try {
-            const res = await API.getEmployees(currentYear);
-            employeesData = res.data || [];
+            const promises = [];
+            if (employeesData.length === 0) {
+                promises.push(API.getEmployees(currentYear).then(r => { employeesData = r.data || []; monthlyData = r.monthly || []; }));
+            }
+            if (costsData.length === 0) {
+                promises.push(API.getCosts().then(r => { costsData = r.data || []; }));
+            }
+            await Promise.all(promises);
         } catch (e) {
-            showToast('Erro ao carregar funcionários', 'error');
+            showToast('Erro ao carregar dados', 'error');
             return;
         }
     }
-    renderEmployeesGrid(employeesData);
+    renderEmployeesGrid(filterBySection(employeesData));
 }
 
 function renderEmployeesGrid(data) {
@@ -532,12 +547,14 @@ function renderEmployeesGrid(data) {
 // ==========================================================================
 
 async function loadOFsView() {
-    if (ofsData.length === 0) {
+    if (ofsData.length === 0 || costsData.length === 0) {
         try {
-            const res = await API.getOFs(currentYear);
-            ofsData = res.data || [];
+            const promises = [];
+            if (ofsData.length === 0) promises.push(API.getOFs(currentYear).then(r => { ofsData = r.data || []; }));
+            if (costsData.length === 0) promises.push(API.getCosts().then(r => { costsData = r.data || []; }));
+            await Promise.all(promises);
         } catch (e) {
-            showToast('Erro ao carregar OFs', 'error');
+            showToast('Erro ao carregar dados', 'error');
             return;
         }
     }

@@ -86,6 +86,32 @@ const headers = {
   'Content-Type': 'application/json'
 };
 
+async function notionFetch(url, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    const resp = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return resp;
+  } catch (e) {
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      throw new Error(`Notion request timed out after 8s: ${url.substring(0, 80)}`);
+    }
+    throw e;
+  }
+}
+
+async function batchQueries(queries, batchSize = 2) {
+  const results = [];
+  for (let i = 0; i < queries.length; i += batchSize) {
+    const batch = queries.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(fn => fn()));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
 const app = express();
 
 // CORS: support single origin, wildcard, or comma-separated list
@@ -126,7 +152,7 @@ app.get('/notion/meta', async (req, res) => {
   try {
     const dbKey = String(req.query.db || 'acabamento');
     const targetDb = NOTION_DATABASES[dbKey] || ACABAMENTO_DB_ID;
-    const resp = await fetch(`https://api.notion.com/v1/databases/${targetDb}`, { headers });
+    const resp = await notionFetch(`https://api.notion.com/v1/databases/${targetDb}`, { headers });
     if (!resp.ok) {
       const text = await resp.text();
       throw new Error(`Notion meta failed (${resp.status}): ${text}`);
@@ -142,7 +168,7 @@ app.get('/notion/meta', async (req, res) => {
 
 app.get('/notion/whoami', async (req, res) => {
   try {
-    const resp = await fetch('https://api.notion.com/v1/users/me', { headers });
+    const resp = await notionFetch('https://api.notion.com/v1/users/me', { headers });
     const text = await resp.text();
     if (!resp.ok) throw new Error(`Notion whoami failed (${resp.status}): ${text}`);
     res.setHeader('Content-Type', 'application/json');
@@ -304,7 +330,7 @@ async function createShiftStartTextOF(dbId, data) {
     }
   };
 
-  const resp = await fetch('https://api.notion.com/v1/pages', {
+  const resp = await notionFetch('https://api.notion.com/v1/pages', {
     method: 'POST',
     headers,
     body: JSON.stringify(payload)
@@ -344,7 +370,7 @@ async function findOpenShiftPageTextOF(dbId, funcionario, ofText) {
               page_size: 1
             };
 
-            const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+            const resp = await notionFetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
               method: 'POST',
               headers,
               body: JSON.stringify(query)
@@ -404,7 +430,7 @@ async function closeShiftEntryTextOF(dbId, data) {
 
   console.log(`📝 Closing shift (text OF) for ${data.funcionario} using properties: Início=${inicioTurnoProp}, Final=${finalTurnoProp}`);
 
-  const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+  const resp2 = await notionFetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify({ properties })
@@ -441,7 +467,7 @@ async function cancelShiftEntryTextOF(dbId, data) {
 
   console.log(`🚫 Cancelling shift (text OF) for ${data.funcionario} using property: Final=${finalTurnoProp}`);
 
-  const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+  const resp2 = await notionFetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify({ properties })
@@ -463,7 +489,7 @@ async function listOpenShiftsTextOF(dbId) {
       ...(start_cursor ? { start_cursor } : {})
     };
 
-    const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+    const resp = await notionFetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
       method: 'POST',
       headers,
       body: JSON.stringify(query)
@@ -564,7 +590,7 @@ async function fetchAllPages(dbId, filter) {
       ...(startCursor && { start_cursor: startCursor }),
     };
 
-    const response = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+    const response = await notionFetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
@@ -585,36 +611,35 @@ async function fetchAllPages(dbId, filter) {
 
 // Dashboard Login — validates credentials from environment variables
 app.post('/api/dashboard/login', (req, res) => {
+  const startTime = Date.now();
   const { user, pass } = req.body || {};
   if (!DASHBOARD_USER || !DASHBOARD_PASS) {
-    return res.status(503).json({ ok: false, error: 'Dashboard credentials not configured on server.' });
+    res.status(503).json({ ok: false, error: 'Dashboard credentials not configured on server.' });
+    console.log(`[dashboard/login] completed in ${Date.now() - startTime}ms`);
+    return;
   }
   if (user === DASHBOARD_USER && pass === DASHBOARD_PASS) {
-    return res.json({ ok: true });
+    res.json({ ok: true });
+    console.log(`[dashboard/login] completed in ${Date.now() - startTime}ms`);
+    return;
   }
-  return res.status(401).json({ ok: false, error: 'Invalid credentials.' });
+  res.status(401).json({ ok: false, error: 'Invalid credentials.' });
+  console.log(`[dashboard/login] completed in ${Date.now() - startTime}ms`);
 });
 
 // 1. Dashboard Summary
 app.get('/api/dashboard/summary', async (req, res) => {
+  const startTime = Date.now();
   try {
-    const activeAcabamento = await listOpenShifts(ACABAMENTO_DB_ID);
-    const activeEstofagem = await listOpenShifts(ESTOFAGEM_TEMPO_DB_ID);
+    const queries = [
+      () => listOpenShifts(ACABAMENTO_DB_ID).catch(() => []),
+      () => listOpenShifts(ESTOFAGEM_TEMPO_DB_ID).catch(() => []),
+      () => PINTURA_DB_ID ? listOpenShifts(PINTURA_DB_ID).catch(() => []) : Promise.resolve([]),
+      () => PREPARACAO_MADEIRAS_DB_ID ? listOpenShiftsTextOF(PREPARACAO_MADEIRAS_DB_ID).catch(() => []) : Promise.resolve([]),
+      () => MONTAGEM_DB_ID ? listOpenShifts(MONTAGEM_DB_ID).catch(() => []) : Promise.resolve([])
+    ];
 
-    let activePintura = [];
-    try {
-      if (PINTURA_DB_ID) activePintura = await listOpenShifts(PINTURA_DB_ID);
-    } catch (e) { console.warn('[dashboard/summary] Pintura query failed:', e.message); }
-
-    let activePreparacao = [];
-    try {
-      if (PREPARACAO_MADEIRAS_DB_ID) activePreparacao = await listOpenShiftsTextOF(PREPARACAO_MADEIRAS_DB_ID);
-    } catch (e) { console.warn('[dashboard/summary] Preparação query failed:', e.message); }
-
-    let activeMontagem = [];
-    try {
-      if (MONTAGEM_DB_ID) activeMontagem = await listOpenShifts(MONTAGEM_DB_ID);
-    } catch (e) { console.warn('[dashboard/summary] Montagem query failed:', e.message); }
+    const [activeAcabamento, activeEstofagem, activePintura, activePreparacao, activeMontagem] = await batchQueries(queries, 2);
 
     res.json({
       ok: true,
@@ -626,6 +651,7 @@ app.get('/api/dashboard/summary', async (req, res) => {
         montagem: activeMontagem
       }
     });
+    console.log(`[dashboard/summary] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -634,6 +660,7 @@ app.get('/api/dashboard/summary', async (req, res) => {
 
 // 2. Employee Performance (Yearly/Monthly)
 app.get('/api/dashboard/employees', async (req, res) => {
+  const startTime = Date.now();
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();
     const startOfYear = new Date(year, 0, 1).toISOString();
@@ -655,18 +682,21 @@ app.get('/api/dashboard/employees', async (req, res) => {
       ]
     };
 
-    const fetchSafe = async (dbId, filter) => {
+    const [acabamentoShifts, estofagemShifts, units] = await Promise.all([
+      fetchAllPages(ACABAMENTO_DB_ID, shiftFilter),
+      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, shiftFilter),
+      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, dateFilter) // Units often use 'Data'
+    ]);
+
+    const fetchSafe = async (dbId, f) => {
       if (!dbId) return [];
-      try { return await fetchAllPages(dbId, filter); } catch (e) {
-        console.warn('[dashboard/employees] query failed for DB', dbId, e.message);
+      try { return await fetchAllPages(dbId, f); } catch (e) {
+        console.warn('[dashboard/employees] failed:', e.message);
         return [];
       }
     };
 
-    const [acabamentoShifts, estofagemShifts, units, pinturaShifts, preparacaoShifts, montagemShifts] = await Promise.all([
-      fetchAllPages(ACABAMENTO_DB_ID, shiftFilter),
-      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, shiftFilter),
-      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, dateFilter), // Units often use 'Data'
+    const [pinturaShifts, preparacaoShifts, montagemShifts] = await Promise.all([
       fetchSafe(PINTURA_DB_ID, shiftFilter),
       fetchSafe(PREPARACAO_MADEIRAS_DB_ID, shiftFilter),
       fetchSafe(MONTAGEM_DB_ID, shiftFilter)
@@ -750,6 +780,7 @@ app.get('/api/dashboard/employees', async (req, res) => {
       data: Object.values(employeeStats),
       monthly: monthlyStats
     });
+    console.log(`[dashboard/employees] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -758,6 +789,7 @@ app.get('/api/dashboard/employees', async (req, res) => {
 
 // 3. OF Performance
 app.get('/api/dashboard/ofs', async (req, res) => {
+  const startTime = Date.now();
   try {
     // Ideally we filter by status, but for now lets fetch recent ones
     // Or fetch all from current year
@@ -769,17 +801,20 @@ app.get('/api/dashboard/ofs', async (req, res) => {
       date: { on_or_after: startOfYear }
     };
 
+    const [acabamentoShifts, estofagemShifts] = await Promise.all([
+      fetchAllPages(ACABAMENTO_DB_ID, filter),
+      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter)
+    ]);
+
     const fetchSafe = async (dbId, f) => {
       if (!dbId) return [];
       try { return await fetchAllPages(dbId, f); } catch (e) {
-        console.warn('[dashboard/ofs] query failed for DB', dbId, e.message);
+        console.warn('[dashboard/ofs] failed:', e.message);
         return [];
       }
     };
 
-    const [acabamentoShifts, estofagemShifts, pinturaShifts, montagemShifts, preparacaoShifts] = await Promise.all([
-      fetchAllPages(ACABAMENTO_DB_ID, filter),
-      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter),
+    const [pinturaShifts, montagemShifts, preparacaoShifts] = await Promise.all([
       fetchSafe(PINTURA_DB_ID, filter),
       fetchSafe(MONTAGEM_DB_ID, filter),
       fetchSafe(PREPARACAO_MADEIRAS_DB_ID, filter)
@@ -846,6 +881,7 @@ app.get('/api/dashboard/ofs', async (req, res) => {
     });
 
     res.json({ ok: true, data: Object.values(ofStats).sort((a, b) => b.of - a.of) });
+    console.log(`[dashboard/ofs] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -854,6 +890,7 @@ app.get('/api/dashboard/ofs', async (req, res) => {
 
 // 4. Employee Costs Management
 app.get('/api/dashboard/costs', async (req, res) => {
+  const startTime = Date.now();
   try {
     if (!CUSTO_FUNCIONARIOS_DB_ID) throw new Error('CUSTO_FUNCIONARIOS_DB_ID not configured');
     const pages = await fetchAllPages(CUSTO_FUNCIONARIOS_DB_ID, undefined);
@@ -865,6 +902,7 @@ app.get('/api/dashboard/costs', async (req, res) => {
     }));
 
     res.json({ ok: true, data: costs });
+    console.log(`[dashboard/costs] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -872,13 +910,14 @@ app.get('/api/dashboard/costs', async (req, res) => {
 });
 
 app.post('/api/dashboard/employee-cost', async (req, res) => {
+  const startTime = Date.now();
   try {
     if (!CUSTO_FUNCIONARIOS_DB_ID) throw new Error('CUSTO_FUNCIONARIOS_DB_ID not configured');
     const { name, cost, id } = req.body;
 
     if (id) {
       // Update
-      await fetch(`https://api.notion.com/v1/pages/${id}`, {
+      await notionFetch(`https://api.notion.com/v1/pages/${id}`, {
         method: 'PATCH',
         headers,
         body: JSON.stringify({
@@ -889,7 +928,7 @@ app.post('/api/dashboard/employee-cost', async (req, res) => {
       });
     } else {
       // Create
-      await fetch('https://api.notion.com/v1/pages', {
+      await notionFetch('https://api.notion.com/v1/pages', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -902,6 +941,7 @@ app.post('/api/dashboard/employee-cost', async (req, res) => {
       });
     }
     res.json({ ok: true });
+    console.log(`[dashboard/employee-cost] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -909,12 +949,14 @@ app.post('/api/dashboard/employee-cost', async (req, res) => {
 });
 
 app.delete('/api/dashboard/employee-cost/:id', async (req, res) => {
+  const startTime = Date.now();
   try {
-    await fetch(`https://api.notion.com/v1/blocks/${req.params.id}`, {
+    await notionFetch(`https://api.notion.com/v1/blocks/${req.params.id}`, {
       method: 'DELETE',
       headers
     });
     res.json({ ok: true });
+    console.log(`[dashboard/employee-cost:delete] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -923,6 +965,7 @@ app.delete('/api/dashboard/employee-cost/:id', async (req, res) => {
 
 // 5. Detailed OF View
 app.get('/api/dashboard/of/:ofNumber', async (req, res) => {
+  const startTime = Date.now();
   try {
     const ofNumber = parseInt(req.params.ofNumber);
     if (!ofNumber) throw new Error('Invalid OF Number');
@@ -933,10 +976,16 @@ app.get('/api/dashboard/of/:ofNumber', async (req, res) => {
       number: { equals: ofNumber }
     };
 
+    const [acabamentoShifts, estofagemShifts, units] = await Promise.all([
+      fetchAllPages(ACABAMENTO_DB_ID, filter),
+      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter),
+      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, filter)
+    ]);
+
     const fetchSafe = async (dbId, f) => {
       if (!dbId) return [];
       try { return await fetchAllPages(dbId, f); } catch (e) {
-        console.warn('[dashboard/of] query failed for DB', dbId, e.message);
+        console.warn('[dashboard/of] failed:', e.message);
         return [];
       }
     };
@@ -947,10 +996,7 @@ app.get('/api/dashboard/of/:ofNumber', async (req, res) => {
       rich_text: { contains: String(ofNumber) }
     };
 
-    const [acabamentoShifts, estofagemShifts, units, pinturaShifts, montagemShifts, preparacaoShifts] = await Promise.all([
-      fetchAllPages(ACABAMENTO_DB_ID, filter),
-      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter),
-      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, filter),
+    const [pinturaShifts, montagemShifts, preparacaoShifts] = await Promise.all([
       fetchSafe(PINTURA_DB_ID, filter),
       fetchSafe(MONTAGEM_DB_ID, filter),
       fetchSafe(PREPARACAO_MADEIRAS_DB_ID, preparacaoFilter)
@@ -980,6 +1026,7 @@ app.get('/api/dashboard/of/:ofNumber', async (req, res) => {
         }))
       }
     });
+    console.log(`[dashboard/of] completed in ${Date.now() - startTime}ms`);
 
   } catch (e) {
     console.error(e);
@@ -989,6 +1036,7 @@ app.get('/api/dashboard/of/:ofNumber', async (req, res) => {
 
 // 6. Detailed Employee View
 app.get('/api/dashboard/employee/:name', async (req, res) => {
+  const startTime = Date.now();
   try {
     const name = req.params.name;
     const year = parseInt(req.query.year) || new Date().getFullYear();
@@ -1010,17 +1058,20 @@ app.get('/api/dashboard/employee/:name', async (req, res) => {
     // We'll skip unit details for this specific endpoint for now, or fetch all and filter (expensive).
     // Let's stick to Shift History.
 
+    const [acabamentoShifts, estofagemShifts] = await Promise.all([
+      fetchAllPages(ACABAMENTO_DB_ID, filter),
+      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter)
+    ]);
+
     const fetchSafe = async (dbId, f) => {
       if (!dbId) return [];
       try { return await fetchAllPages(dbId, f); } catch (e) {
-        console.warn('[dashboard/employee] query failed for DB', dbId, e.message);
+        console.warn('[dashboard/employee] failed:', e.message);
         return [];
       }
     };
 
-    const [acabamentoShifts, estofagemShifts, pinturaShifts, preparacaoShifts, montagemShifts] = await Promise.all([
-      fetchAllPages(ACABAMENTO_DB_ID, filter),
-      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter),
+    const [pinturaShifts, preparacaoShifts, montagemShifts] = await Promise.all([
       fetchSafe(PINTURA_DB_ID, filter),
       fetchSafe(PREPARACAO_MADEIRAS_DB_ID, filter),
       fetchSafe(MONTAGEM_DB_ID, filter)
@@ -1057,6 +1108,7 @@ app.get('/api/dashboard/employee/:name', async (req, res) => {
         history: shiftHistory
       }
     });
+    console.log(`[dashboard/employee] completed in ${Date.now() - startTime}ms`);
 
   } catch (e) {
     console.error(e);
@@ -1084,7 +1136,7 @@ async function listOpenShifts(dbId) {
       ...(start_cursor ? { start_cursor } : {})
     };
 
-    const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+    const resp = await notionFetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
       method: 'POST',
       headers,
       body: JSON.stringify(query)
@@ -1126,7 +1178,7 @@ async function listAcabamentoOptions(ofNumber) {
       ...(start_cursor ? { start_cursor } : {})
     };
 
-    const resp = await fetch(`https://api.notion.com/v1/databases/${ACABAMENTO_DB_ID}/query`, {
+    const resp = await notionFetch(`https://api.notion.com/v1/databases/${ACABAMENTO_DB_ID}/query`, {
       method: 'POST',
       headers,
       body: JSON.stringify(query)
@@ -1162,7 +1214,7 @@ async function createShiftStart(dbId, data) {
     }
   };
 
-  const resp = await fetch('https://api.notion.com/v1/pages', {
+  const resp = await notionFetch('https://api.notion.com/v1/pages', {
     method: 'POST',
     headers,
     body: JSON.stringify(payload)
@@ -1202,7 +1254,7 @@ async function findOpenShiftPage(dbId, funcionario, ofNumber) {
               page_size: 1
             };
 
-            const resp = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+            const resp = await notionFetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
               method: 'POST',
               headers,
               body: JSON.stringify(query)
@@ -1293,7 +1345,7 @@ async function closeShiftEntry(dbId, data) {
 
   console.log(`📝 Closing shift for ${data.funcionario} using properties: Início=${inicioTurnoProp}, Final=${finalTurnoProp}`);
 
-  const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+  const resp2 = await notionFetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify({ properties })
@@ -1330,7 +1382,7 @@ async function cancelShiftEntry(dbId, data) {
 
   console.log(`🚫 Cancelling shift for ${data.funcionario} using property: Final=${finalTurnoProp}`);
 
-  const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+  const resp2 = await notionFetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify({ properties })
@@ -1363,7 +1415,7 @@ async function registerPinturaQuantities(dbId, data) {
   properties[propVerniz] = { number: verniz };
   properties[propAquec] = { number: aquecimento };
 
-  const resp = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+  const resp = await notionFetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify({ properties })
@@ -1472,7 +1524,7 @@ async function finishIncompleteEntry(dbId, data) {
     properties
   };
 
-  const resp2 = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+  const resp2 = await notionFetch(`https://api.notion.com/v1/pages/${page.id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(payload)
@@ -1504,7 +1556,7 @@ async function registerEstofagemAcabamento(data) {
     properties
   };
 
-  const resp = await fetch('https://api.notion.com/v1/pages', {
+  const resp = await notionFetch('https://api.notion.com/v1/pages', {
     method: 'POST',
     headers,
     body: JSON.stringify(payload)
