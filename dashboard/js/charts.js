@@ -117,9 +117,10 @@ const DashboardCharts = {
         this.destroy(canvasId);
         const ctx = document.getElementById(canvasId).getContext('2d');
 
-        // Filter out OF 0/Geral and take top 12 recent
+        // Filter out OF 0/Geral, sort ascending, take last 12 (highest = most recent)
         const filtered = data.filter(d => d.of !== 0 && d.of !== '0');
-        const recent = [...filtered].slice(0, 12);
+        const sorted = [...filtered].sort((a, b) => a.of - b.of);
+        const recent = sorted.slice(-12);
 
         this.instances[canvasId] = new Chart(ctx, {
             type: 'bar',

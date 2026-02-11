@@ -114,6 +114,36 @@ async function batchQueries(queries, batchSize = 2) {
   return results;
 }
 
+// --- In-memory cache with stale fallback ---
+const cache = new Map();
+
+function getCached(key) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  const now = Date.now();
+  if (now < entry.expiresAt) return { data: entry.data, stale: false };
+  // Expired but still available as stale fallback
+  return { data: entry.data, stale: true };
+}
+
+function setCache(key, data, ttlMs) {
+  cache.set(key, { data, expiresAt: Date.now() + ttlMs, storedAt: Date.now() });
+}
+
+function invalidateCache(prefix) {
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) cache.delete(key);
+  }
+}
+
+const CACHE_TTL = {
+  summary: 30 * 1000,
+  employees: 5 * 60 * 1000,
+  ofs: 5 * 60 * 1000,
+  costs: 10 * 60 * 1000,
+  aquecimento: 10 * 60 * 1000
+};
+
 const app = express();
 
 // CORS: support single origin, wildcard, or comma-separated list
@@ -632,6 +662,17 @@ app.post('/api/dashboard/login', (req, res) => {
 // 1. Dashboard Summary
 app.get('/api/dashboard/summary', async (req, res) => {
   const startTime = Date.now();
+  const forceRefresh = req.query.refresh === 'true';
+  const cacheKey = 'summary';
+
+  if (!forceRefresh) {
+    const cached = getCached(cacheKey);
+    if (cached && !cached.stale) {
+      console.log(`[dashboard/summary] cache hit (${Date.now() - startTime}ms)`);
+      return res.json(cached.data);
+    }
+  }
+
   try {
     const queries = [
       () => listOpenShifts(ACABAMENTO_DB_ID).catch(() => []),
@@ -666,7 +707,7 @@ app.get('/api/dashboard/summary', async (req, res) => {
       console.warn('Failed to get latest Estofagem OF:', e.message);
     }
 
-    res.json({
+    const result = {
       ok: true,
       activeWorkers: {
         acabamento: activeAcabamento,
@@ -676,9 +717,18 @@ app.get('/api/dashboard/summary', async (req, res) => {
         montagem: activeMontagem
       },
       latestEstofagemOF
-    });
+    };
+
+    setCache(cacheKey, result, CACHE_TTL.summary);
+    res.json(result);
     console.log(`[dashboard/summary] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
+    // Stale fallback
+    const stale = getCached(cacheKey);
+    if (stale) {
+      console.warn(`[dashboard/summary] Notion failed, serving stale cache (${Date.now() - startTime}ms)`);
+      return res.json({ ...stale.data, stale: true });
+    }
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
@@ -687,15 +737,26 @@ app.get('/api/dashboard/summary', async (req, res) => {
 // 2. Employee Performance (Yearly/Monthly)
 app.get('/api/dashboard/employees', async (req, res) => {
   const startTime = Date.now();
+  const year = parseInt(req.query.year) || new Date().getFullYear();
+  const forceRefresh = req.query.refresh === 'true';
+  const cacheKey = `employees_${year}`;
+
+  if (!forceRefresh) {
+    const cached = getCached(cacheKey);
+    if (cached && !cached.stale) {
+      console.log(`[dashboard/employees] cache hit (${Date.now() - startTime}ms)`);
+      return res.json(cached.data);
+    }
+  }
+
   try {
-    const year = parseInt(req.query.year) || new Date().getFullYear();
     const startOfYear = new Date(year, 0, 1).toISOString();
     const endOfYear = new Date(year + 1, 0, 1).toISOString();
 
     const dateFilter = {
       and: [
-        { property: 'Data', date: { on_or_after: startOfYear } },
-        { property: 'Data', date: { before: endOfYear } }
+        { property: ESTOFAGEM_REGISTOS_PROPS.data, date: { on_or_after: startOfYear } },
+        { property: ESTOFAGEM_REGISTOS_PROPS.data, date: { before: endOfYear } }
       ]
     };
 
@@ -708,11 +769,20 @@ app.get('/api/dashboard/employees', async (req, res) => {
       ]
     };
 
-    const [acabamentoShifts, estofagemShifts, units] = await Promise.all([
+    // Use allSettled so one failure doesn't kill the whole endpoint
+    const [acabamentoResult, estofagemResult, unitsResult] = await Promise.allSettled([
       fetchAllPages(ACABAMENTO_DB_ID, shiftFilter),
       fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, shiftFilter),
-      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, dateFilter) // Units often use 'Data'
+      fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, dateFilter)
     ]);
+
+    const acabamentoShifts = acabamentoResult.status === 'fulfilled' ? acabamentoResult.value : [];
+    const estofagemShifts = estofagemResult.status === 'fulfilled' ? estofagemResult.value : [];
+    const units = unitsResult.status === 'fulfilled' ? unitsResult.value : [];
+
+    if (acabamentoResult.status === 'rejected') console.warn('[dashboard/employees] acabamento query failed:', acabamentoResult.reason?.message);
+    if (estofagemResult.status === 'rejected') console.warn('[dashboard/employees] estofagem query failed:', estofagemResult.reason?.message);
+    if (unitsResult.status === 'rejected') console.warn('[dashboard/employees] units query failed:', unitsResult.reason?.message);
 
     const fetchSafe = async (dbId, f) => {
       if (!dbId) return [];
@@ -751,8 +821,8 @@ app.get('/api/dashboard/employees', async (req, res) => {
     montagemShifts.forEach(p => processShift(p, 'Montagem'));
 
     units.forEach(page => {
-      const cru = page.properties?.['Cru Por:']?.rich_text?.[0]?.plain_text || '';
-      const tp = page.properties?.['TP por:']?.rich_text?.[0]?.plain_text || '';
+      const cru = page.properties?.[ESTOFAGEM_REGISTOS_PROPS.cru]?.rich_text?.[0]?.plain_text || '';
+      const tp = page.properties?.[ESTOFAGEM_REGISTOS_PROPS.tp]?.rich_text?.[0]?.plain_text || '';
 
       // Split comma separated names
       const creditUnit = (field) => {
@@ -802,21 +872,30 @@ app.get('/api/dashboard/employees', async (req, res) => {
 
     // Add units per month
     units.forEach(page => {
-      const dataDate = page.properties?.['Data']?.date?.start;
+      const dataDate = page.properties?.[ESTOFAGEM_REGISTOS_PROPS.data]?.date?.start;
       if (!dataDate) return;
       const month = new Date(dataDate).getMonth();
-      // Count each record as units (Cru + TP entries)
-      // Count 1 unit per record (Estofagem Acabamentos DB represents units produced)
       monthlyStats[month].units += 1;
     });
 
-    res.json({
+    const partial = acabamentoResult.status === 'rejected' || estofagemResult.status === 'rejected' || unitsResult.status === 'rejected';
+    const result = {
       ok: true,
       data: Object.values(employeeStats),
-      monthly: monthlyStats
-    });
-    console.log(`[dashboard/employees] completed in ${Date.now() - startTime}ms`);
+      monthly: monthlyStats,
+      ...(partial && { partial: true })
+    };
+
+    setCache(cacheKey, result, CACHE_TTL.employees);
+    res.json(result);
+    console.log(`[dashboard/employees] completed in ${Date.now() - startTime}ms${partial ? ' (partial)' : ''}`);
   } catch (e) {
+    // Stale fallback
+    const stale = getCached(cacheKey);
+    if (stale) {
+      console.warn(`[dashboard/employees] Notion failed, serving stale cache (${Date.now() - startTime}ms)`);
+      return res.json({ ...stale.data, stale: true });
+    }
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
@@ -825,10 +904,19 @@ app.get('/api/dashboard/employees', async (req, res) => {
 // 3. OF Performance
 app.get('/api/dashboard/ofs', async (req, res) => {
   const startTime = Date.now();
+  const year = parseInt(req.query.year) || new Date().getFullYear();
+  const forceRefresh = req.query.refresh === 'true';
+  const cacheKey = `ofs_${year}`;
+
+  if (!forceRefresh) {
+    const cached = getCached(cacheKey);
+    if (cached && !cached.stale) {
+      console.log(`[dashboard/ofs] cache hit (${Date.now() - startTime}ms)`);
+      return res.json(cached.data);
+    }
+  }
+
   try {
-    // Ideally we filter by status, but for now lets fetch recent ones
-    // Or fetch all from current year
-    const year = parseInt(req.query.year) || new Date().getFullYear();
     const startOfYear = new Date(year, 0, 1).toISOString();
     const endOfYear = new Date(year + 1, 0, 1).toISOString();
 
@@ -839,10 +927,17 @@ app.get('/api/dashboard/ofs', async (req, res) => {
       ]
     };
 
-    const [acabamentoShifts, estofagemShifts] = await Promise.all([
+    // Use allSettled so one failure doesn't kill the whole endpoint
+    const [acabamentoResult, estofagemResult] = await Promise.allSettled([
       fetchAllPages(ACABAMENTO_DB_ID, filter),
       fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter)
     ]);
+
+    const acabamentoShifts = acabamentoResult.status === 'fulfilled' ? acabamentoResult.value : [];
+    const estofagemShifts = estofagemResult.status === 'fulfilled' ? estofagemResult.value : [];
+
+    if (acabamentoResult.status === 'rejected') console.warn('[dashboard/ofs] acabamento query failed:', acabamentoResult.reason?.message);
+    if (estofagemResult.status === 'rejected') console.warn('[dashboard/ofs] estofagem query failed:', estofagemResult.reason?.message);
 
     const fetchSafe = async (dbId, f) => {
       if (!dbId) return [];
@@ -920,9 +1015,19 @@ app.get('/api/dashboard/ofs', async (req, res) => {
       });
     });
 
-    res.json({ ok: true, data: Object.values(ofStats).sort((a, b) => b.of - a.of) });
-    console.log(`[dashboard/ofs] completed in ${Date.now() - startTime}ms`);
+    const partial = acabamentoResult.status === 'rejected' || estofagemResult.status === 'rejected';
+    const result = { ok: true, data: Object.values(ofStats).sort((a, b) => b.of - a.of), ...(partial && { partial: true }) };
+
+    setCache(cacheKey, result, CACHE_TTL.ofs);
+    res.json(result);
+    console.log(`[dashboard/ofs] completed in ${Date.now() - startTime}ms${partial ? ' (partial)' : ''}`);
   } catch (e) {
+    // Stale fallback
+    const stale = getCached(cacheKey);
+    if (stale) {
+      console.warn(`[dashboard/ofs] Notion failed, serving stale cache (${Date.now() - startTime}ms)`);
+      return res.json({ ...stale.data, stale: true });
+    }
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
@@ -931,6 +1036,17 @@ app.get('/api/dashboard/ofs', async (req, res) => {
 // 4. Employee Costs Management
 app.get('/api/dashboard/costs', async (req, res) => {
   const startTime = Date.now();
+  const forceRefresh = req.query.refresh === 'true';
+  const cacheKey = 'costs';
+
+  if (!forceRefresh) {
+    const cached = getCached(cacheKey);
+    if (cached && !cached.stale) {
+      console.log(`[dashboard/costs] cache hit (${Date.now() - startTime}ms)`);
+      return res.json(cached.data);
+    }
+  }
+
   try {
     if (!CUSTO_FUNCIONARIOS_DB_ID) throw new Error('CUSTO_FUNCIONARIOS_DB_ID not configured');
     const pages = await fetchAllPages(CUSTO_FUNCIONARIOS_DB_ID, undefined);
@@ -941,9 +1057,17 @@ app.get('/api/dashboard/costs', async (req, res) => {
       cost: p.properties?.['Custo do Funcionário (€/h)']?.number || 0
     }));
 
-    res.json({ ok: true, data: costs });
+    const result = { ok: true, data: costs };
+    setCache(cacheKey, result, CACHE_TTL.costs);
+    res.json(result);
     console.log(`[dashboard/costs] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
+    // Stale fallback
+    const stale = getCached(cacheKey);
+    if (stale) {
+      console.warn(`[dashboard/costs] Notion failed, serving stale cache (${Date.now() - startTime}ms)`);
+      return res.json({ ...stale.data, stale: true });
+    }
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
@@ -980,6 +1104,7 @@ app.post('/api/dashboard/employee-cost', async (req, res) => {
         })
       });
     }
+    invalidateCache('costs');
     res.json({ ok: true });
     console.log(`[dashboard/employee-cost] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
@@ -1717,10 +1842,21 @@ app.post('/api/dashboard/of-manage', async (req, res) => {
 // 6. Aquecimento (Heating) Tracking
 app.get('/api/dashboard/aquecimento', async (req, res) => {
   const startTime = Date.now();
-  try {
-    if (!PINTURA_DB_ID) return res.json({ ok: true, data: { total: 0, monthly: [] }, configured: false });
+  if (!PINTURA_DB_ID) return res.json({ ok: true, data: { total: 0, monthly: [] }, configured: false });
 
-    const year = parseInt(req.query.year) || new Date().getFullYear();
+  const year = parseInt(req.query.year) || new Date().getFullYear();
+  const forceRefresh = req.query.refresh === 'true';
+  const cacheKey = `aquecimento_${year}`;
+
+  if (!forceRefresh) {
+    const cached = getCached(cacheKey);
+    if (cached && !cached.stale) {
+      console.log(`[dashboard/aquecimento] cache hit (${Date.now() - startTime}ms)`);
+      return res.json(cached.data);
+    }
+  }
+
+  try {
     const startOfYear = new Date(year, 0, 1).toISOString();
     const endOfYear = new Date(year + 1, 0, 1).toISOString();
 
@@ -1757,16 +1893,25 @@ app.get('/api/dashboard/aquecimento', async (req, res) => {
       }
     });
 
-    res.json({
+    const result = {
       ok: true,
       configured: true,
       data: {
         total: totalAquecimento,
         monthly: monthlyAquecimento
       }
-    });
+    };
+
+    setCache(cacheKey, result, CACHE_TTL.aquecimento);
+    res.json(result);
     console.log(`[dashboard/aquecimento] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
+    // Stale fallback
+    const stale = getCached(cacheKey);
+    if (stale) {
+      console.warn(`[dashboard/aquecimento] Notion failed, serving stale cache (${Date.now() - startTime}ms)`);
+      return res.json({ ...stale.data, stale: true });
+    }
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
@@ -1781,6 +1926,7 @@ app.delete('/api/dashboard/employee-cost/:id', async (req, res) => {
       headers,
       body: JSON.stringify({ archived: true })
     });
+    invalidateCache('costs');
     res.json({ ok: true });
     console.log(`[dashboard/employee-cost:delete] completed in ${Date.now() - startTime}ms`);
   } catch (e) {

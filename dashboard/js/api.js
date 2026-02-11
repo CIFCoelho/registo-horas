@@ -61,12 +61,12 @@ const API = {
     // Specific Methods
     getOFsList: () => API.get('/ofs-list'),
     saveOF: (data) => API.post('/of-manage', data),
-    getAquecimento: (year) => API.get('/aquecimento', { year }),
+    getAquecimento: (year, refresh) => API.get('/aquecimento', { year, ...(refresh && { refresh: 'true' }) }),
 
-    getSummary: () => API.get('/summary'),
-    getEmployees: (year) => API.get('/employees', { year }),
-    getOFs: (year) => API.get('/ofs', { year }),
-    getCosts: () => API.get('/costs'),
+    getSummary: (refresh) => API.get('/summary', refresh ? { refresh: 'true' } : {}),
+    getEmployees: (year, refresh) => API.get('/employees', { year, ...(refresh && { refresh: 'true' }) }),
+    getOFs: (year, refresh) => API.get('/ofs', { year, ...(refresh && { refresh: 'true' }) }),
+    getCosts: (refresh) => API.get('/costs', refresh ? { refresh: 'true' } : {}),
     getOFDetail: (id) => API.get(`/of/${id}`),
     getEmployeeDetail: (name, year) => API.get(`/employee/${encodeURIComponent(name)}`, { year }),
 

@@ -243,7 +243,21 @@ function filterBySection(data) {
 // Data Loading
 // ==========================================================================
 
-async function loadAllData() {
+// Force refresh bypasses server cache
+window.forceRefreshAll = async function() {
+    const btn = document.getElementById('btn-refresh');
+    if (btn) { btn.disabled = true; btn.textContent = 'A atualizar...'; }
+    try {
+        await loadAllData(true);
+        showToast('Dados atualizados', 'success');
+    } catch (e) {
+        showToast('Erro ao atualizar: ' + e.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<span>🔄</span> Atualizar'; }
+    }
+};
+
+async function loadAllData(forceRefresh = false) {
     try {
         document.getElementById('stat-total-hours').innerHTML = '<span class="spinner-small"></span>';
         document.getElementById('stat-active-employees').innerHTML = '<span class="spinner-small"></span>';
@@ -252,9 +266,9 @@ async function loadAllData() {
         document.getElementById('stat-total-cost').innerHTML = '<span class="spinner-small"></span>';
 
         const [employeesResult, ofsResult, costsResult] = await Promise.allSettled([
-            API.getEmployees(currentYear),
-            API.getOFs(currentYear),
-            API.getCosts()
+            API.getEmployees(currentYear, forceRefresh),
+            API.getOFs(currentYear, forceRefresh),
+            API.getCosts(forceRefresh)
         ]);
 
         employeesData = employeesResult.status === 'fulfilled' ? (employeesResult.value.data || []) : [];
@@ -265,6 +279,14 @@ async function loadAllData() {
         if (employeesResult.status === 'rejected') showToast('Erro ao carregar funcionários', 'warning');
         if (ofsResult.status === 'rejected') showToast('Erro ao carregar OFs', 'warning');
         if (costsResult.status === 'rejected') showToast('Erro ao carregar custos', 'warning');
+
+        // Show stale indicator if any data came from stale cache
+        const isStale = [employeesResult, ofsResult, costsResult].some(
+            r => r.status === 'fulfilled' && r.value.stale
+        );
+        const staleEl = document.getElementById('stale-indicator');
+        if (staleEl) staleEl.style.display = isStale ? 'inline-block' : 'none';
+        if (isStale) showToast('Dados em cache (Notion indisponível)', 'warning');
 
         // Update summary stats
         updateSummaryStats();

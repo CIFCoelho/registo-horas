@@ -114,9 +114,10 @@
                             <option value="Montagem">Montagem</option>
                         </select>
                     </label>
-                    <button class="btn btn-secondary" onclick="window.location.reload()">
+                    <button id="btn-refresh" class="btn btn-secondary" onclick="forceRefreshAll()">
                         <span>🔄</span> Atualizar
                     </button>
+                    <span id="stale-indicator" style="display:none; color:#ffc107; font-size:0.8em; margin-left:8px;" title="Dados em cache (Notion indisponível)">&#9888; cache</span>
                 </div>
             </header>
 
