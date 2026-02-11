@@ -71,7 +71,7 @@ window.loadDashboard = async () => {
     const yearSelect = document.getElementById('year-selector');
     const thisYear = new Date().getFullYear();
     yearSelect.innerHTML = '';
-    for (let y = thisYear; y >= 2024; y--) {
+    for (let y = thisYear; y >= 2025; y--) {
         const opt = document.createElement('option');
         opt.value = y;
         opt.textContent = y;
@@ -199,7 +199,8 @@ function setupControls() {
         currentSection = e.target.value;
         if (employeesData.length > 0) {
             renderEmployeesGrid(filterBySection(employeesData));
-            DashboardCharts.renderEmployeePerformance('chartEmployeePerformance', filterBySection(employeesData));
+            DashboardCharts.renderAcabamentoPerformance('chartAcabamentoPerformance', filterBySection(employeesData));
+            DashboardCharts.renderEstofagemPerformance('chartEstofagemPerformance', filterBySection(employeesData));
         }
         if (ofsData.length > 0) {
             const filteredOFs = currentSection === 'all'
@@ -225,6 +226,11 @@ function setupControls() {
     // Add cost button
     document.getElementById('btn-add-cost').addEventListener('click', () => {
         showAddCostModal();
+    });
+
+    // Create OF button
+    document.getElementById('btn-create-of')?.addEventListener('click', () => {
+        showCreateOFModal();
     });
 }
 
@@ -264,13 +270,15 @@ async function loadAllData() {
         updateSummaryStats();
 
         // Render charts
-        hideLoading('loading-employee');
+        hideLoading('loading-acabamento');
+        hideLoading('loading-estofagem');
         hideLoading('loading-of');
         hideLoading('loading-monthly');
 
-        DashboardCharts.renderEmployeePerformance('chartEmployeePerformance', employeesData);
+        DashboardCharts.renderAcabamentoPerformance('chartAcabamentoPerformance', employeesData);
+        DashboardCharts.renderEstofagemPerformance('chartEstofagemPerformance', employeesData);
         DashboardCharts.renderOFProgress('chartOFProgress', ofsData);
-        DashboardCharts.renderMonthlyTrend('chartMonthlyTrend', monthlyData);
+        DashboardCharts.renderMonthlyTrend('chartMonthlyTrend', monthlyData, currentYear);
 
         // Render active workers
         await renderActiveWorkers();
@@ -282,8 +290,17 @@ async function loadAllData() {
         } else if (activeView?.id === 'view-ofs') {
             renderOFsTable(ofsData);
         } else if (activeView?.id === 'view-costs') {
-            renderCostsTable();
+            loadCostsView();
         }
+
+        // Check if OFS supported and show/hide create button
+        API.getOFsList().then(r => {
+            window.ofsConfigured = r.configured;
+            if (r.configured) {
+                const btn = document.getElementById('btn-create-of');
+                if (btn) btn.style.display = 'block';
+            }
+        }).catch(() => { });
 
     } catch (e) {
         console.error('Failed to load data:', e);
@@ -324,16 +341,38 @@ function updateSummaryStats() {
     });
 
     // Update DOM
+    // Update DOM
     document.getElementById('stat-total-hours').textContent = Math.round(totalHours).toLocaleString('pt-PT');
-    document.getElementById('stat-active-employees').textContent = activeEmployees;
-    document.getElementById('stat-total-ofs').textContent = totalOFs;
-    const mostActiveSectionEl = document.getElementById('stat-most-active-section');
-    if (mostActiveSection !== '-') {
-        mostActiveSectionEl.innerHTML = `${mostActiveSection}<span class="unit">${Math.round(maxSectionHours)}h</span>`;
+
+    // Active Employees (calculated from current summaryData later, but if not available yet use local filter as fallback?)
+    // Actually, we should wait or just leave what renderActiveWorkers put there.
+    // Task 1: Use summaryData for "Ativos Agora" value. 
+    if (window.lastSummaryData) {
+        const activeCount = new Set([
+            ...(window.lastSummaryData.activeWorkers?.acabamento || []).map(w => w.funcionario),
+            ...(window.lastSummaryData.activeWorkers?.estofagem || []).map(w => w.funcionario),
+            ...(window.lastSummaryData.activeWorkers?.pintura || []).map(w => w.funcionario),
+            ...(window.lastSummaryData.activeWorkers?.preparacao || []).map(w => w.funcionario),
+            ...(window.lastSummaryData.activeWorkers?.montagem || []).map(w => w.funcionario)
+        ]).size;
+        document.getElementById('stat-active-employees').textContent = activeCount;
+
+        // Latest Estofagem OF
+        const latestOF = window.lastSummaryData.latestEstofagemOF;
+        document.getElementById('stat-total-ofs').textContent = latestOF ? (latestOF === 0 ? 'Geral' : `OF ${latestOF}`) : '-';
     } else {
-        mostActiveSectionEl.textContent = '-';
+        // Fallback or wait for renderActiveWorkers
     }
-    document.getElementById('stat-total-cost').innerHTML = `${Math.round(totalCost).toLocaleString('pt-PT')}<span class="unit">€</span>`;
+
+    // Card 4: Horas desde Janeiro (totalHours)
+    document.getElementById('stat-most-active-section').innerHTML = `${Math.round(totalHours).toLocaleString('pt-PT')}<span class="unit">h</span>`;
+
+    // Cost
+    if (costsData.length > 0) {
+        document.getElementById('stat-total-cost').innerHTML = `${Math.round(totalCost).toLocaleString('pt-PT')}<span class="unit">€</span>`;
+    } else {
+        document.getElementById('stat-total-cost').textContent = '—';
+    }
 }
 
 // ==========================================================================
@@ -343,6 +382,9 @@ function updateSummaryStats() {
 async function renderActiveWorkers() {
     try {
         const res = await API.getSummary();
+        window.lastSummaryData = res;
+        updateSummaryStats(); // update the summary cards that depend on this data
+
         const container = document.getElementById('active-workers-list');
         const lastUpdated = document.getElementById('last-updated');
 
@@ -378,7 +420,7 @@ async function renderActiveWorkers() {
                 <div class="worker-badge acabamento" onclick="showEmployeeDetail('${w.funcionario}')">
                     <div class="worker-info">
                         <strong>${w.funcionario}</strong>
-                        <span>Acabamento • OF ${w.of || 'Geral'}</span>
+                        <span>Acabamento • ${w.of === 0 || w.of === '0' ? 'Geral' : (w.of ? `OF ${w.of}` : 'Geral')}</span>
                         <span class="worker-time">⏱ ${elapsed}</span>
                     </div>
                 </div>
@@ -391,7 +433,7 @@ async function renderActiveWorkers() {
                 <div class="worker-badge estofagem" onclick="showEmployeeDetail('${w.funcionario}')">
                     <div class="worker-info">
                         <strong>${w.funcionario}</strong>
-                        <span>Estofagem • OF ${w.of || 'Geral'}</span>
+                        <span>Estofagem • ${w.of === 0 || w.of === '0' ? 'Geral' : (w.of ? `OF ${w.of}` : 'Geral')}</span>
                         <span class="worker-time" style="color: var(--info);">⏱ ${elapsed}</span>
                     </div>
                 </div>
@@ -404,7 +446,7 @@ async function renderActiveWorkers() {
                 <div class="worker-badge pintura" onclick="showEmployeeDetail('${w.funcionario}')">
                     <div class="worker-info">
                         <strong>${w.funcionario}</strong>
-                        <span>Pintura • OF ${w.of || 'Geral'}</span>
+                        <span>Pintura • ${w.of === 0 || w.of === '0' ? 'Geral' : (w.of ? `OF ${w.of}` : 'Geral')}</span>
                         <span class="worker-time">⏱ ${elapsed}</span>
                     </div>
                 </div>
@@ -417,7 +459,7 @@ async function renderActiveWorkers() {
                 <div class="worker-badge preparacao" onclick="showEmployeeDetail('${w.funcionario}')">
                     <div class="worker-info">
                         <strong>${w.funcionario}</strong>
-                        <span>Preparação • OF ${w.of || 'Geral'}</span>
+                        <span>Preparação • ${w.of === 0 || w.of === '0' ? 'Geral' : (w.of ? `OF ${w.of}` : 'Geral')}</span>
                         <span class="worker-time">⏱ ${elapsed}</span>
                     </div>
                 </div>
@@ -430,7 +472,7 @@ async function renderActiveWorkers() {
                 <div class="worker-badge montagem" onclick="showEmployeeDetail('${w.funcionario}')">
                     <div class="worker-info">
                         <strong>${w.funcionario}</strong>
-                        <span>Montagem • OF ${w.of || 'Geral'}</span>
+                        <span>Montagem • ${w.of === 0 || w.of === '0' ? 'Geral' : (w.of ? `OF ${w.of}` : 'Geral')}</span>
                         <span class="worker-time">⏱ ${elapsed}</span>
                     </div>
                 </div>
@@ -585,8 +627,8 @@ function renderOFsTable(data) {
             ? `<span title="Média: ${avgCostPerHour.toFixed(1)}€/h × ${(of.totalHours || 0).toFixed(1)}h">~${estimatedCost.toFixed(0)}€</span>`
             : '-';
         return `
-            <tr onclick="showOFDetail(${of.of})" style="cursor: pointer;">
-                <td><strong>OF ${of.of}</strong></td>
+            <tr onclick="showOFDetail('${of.of}')" style="cursor: pointer;">
+                <td><strong>${of.of === 0 ? 'Geral' : `OF ${of.of}`}</strong></td>
                 <td>${of.acabamentoHours?.toFixed(1) || 0}h</td>
                 <td>${of.estofagemHours?.toFixed(1) || 0}h</td>
                 <td>${of.pinturaHours?.toFixed(1) || 0}h</td>
@@ -595,9 +637,13 @@ function renderOFsTable(data) {
                 <td><strong>${of.totalHours?.toFixed(1) || 0}h</strong></td>
                 <td>${costDisplay}</td>
                 <td>
-                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); showOFDetail(${of.of})">
-                        Ver Detalhes
+                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); showOFDetail('${of.of}')">
+                        Detalhes
                     </button>
+                    ${window.ofsConfigured ? `
+                    <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); showEditOFModal('${of.of}')">
+                        Editar
+                    </button>` : ''}
                 </td>
             </tr>
         `;
@@ -611,12 +657,30 @@ function renderOFsTable(data) {
 async function loadCostsView() {
     if (costsData.length === 0) {
         try {
-            const res = await API.getCosts();
-            costsData = res.data || [];
+            const promises = [];
+            promises.push(API.getCosts().then(r => { costsData = r.data || []; }));
+
+            if (employeesData.length === 0) {
+                promises.push(API.getEmployees(currentYear).then(r => {
+                    employeesData = r.data || [];
+                    updateSummaryStats();
+                }));
+            }
+
+            await Promise.all(promises);
+            // Also load Auqecimento data
+            API.getAquecimento(currentYear).then(r => {
+                if (r.configured && r.data) renderAquecimento(r.data);
+            }).catch(e => console.warn('Aquecimento load failed', e));
+
         } catch (e) {
-            showToast('Erro ao carregar custos', 'error');
-            return;
+            showToast('Erro ao carregar custos', e.message); // Not error, just show message
         }
+    } else {
+        // Reload aquecimento anyway
+        API.getAquecimento(currentYear).then(r => {
+            if (r.configured && r.data) renderAquecimento(r.data);
+        }).catch(e => console.warn('Aquecimento load failed', e));
     }
     renderCostsTable();
 }
@@ -672,7 +736,7 @@ window.showOFDetail = async (ofNum) => {
     const title = document.getElementById('detail-title');
     const subtitle = document.getElementById('detail-subtitle');
 
-    title.textContent = `Ordem de Fabrico ${ofNum}`;
+    title.textContent = (ofNum == 0) ? 'Geral (Manutenção / Sem OF)' : `Ordem de Fabrico ${ofNum}`;
     subtitle.textContent = 'A carregar detalhes...';
     container.innerHTML = '<div class="loading-placeholder"><div class="spinner"></div></div>';
 
@@ -908,10 +972,12 @@ window.showEmployeeDetail = async (name) => {
             const hours = (hEnd && hStart) ? (hEnd - hStart) / 36e5 : 0;
             const cost = hours * costPerHour;
             const sectionColor = SECTION_COLORS[h.section] || '#ccc';
+            const ofDisplay = h.of == 0 ? 'Geral' : (h.of || '-');
+            const ofClick = h.of != null ? `showOFDetail('${h.of}')` : '';
             return `
-                                <tr onclick="showOFDetail(${h.of})" style="cursor: pointer; border-left: 4px solid ${sectionColor};">
+                                <tr onclick="${ofClick}" style="cursor: pointer; border-left: 4px solid ${sectionColor};">
                                     <td>${hStart ? hStart.toLocaleDateString('pt-PT') : '-'}</td>
-                                    <td>${h.of || '-'}</td>
+                                    <td>${ofDisplay}</td>
                                     <td>${h.section}</td>
                                     <td>${hours.toFixed(2)}h</td>
                                     <td>${cost.toFixed(0)}€</td>
@@ -1103,4 +1169,211 @@ function showToast(message, type = 'success') {
 function hideLoading(elementId) {
     const el = document.getElementById(elementId);
     if (el) el.classList.add('hidden');
+}
+
+// ==========================================================================
+// Aquecimento & Modals (Added Features)
+// ==========================================================================
+
+function renderAquecimento(data) {
+    const totalEl = document.getElementById('stat-aquecimento-total');
+    if (totalEl) totalEl.innerHTML = `${data.total.toFixed(1)}<span class="unit">h</span>`;
+
+    const ctx = document.getElementById('chartAquecimento')?.getContext('2d');
+    if (!ctx) return;
+
+    const now = new Date();
+    const monthsToShow = (currentYear >= now.getFullYear()) ? now.getMonth() + 1 : 12;
+    const labels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'].slice(0, monthsToShow);
+    const values = data.monthly.slice(0, monthsToShow);
+
+    DashboardCharts.destroy('chartAquecimento');
+    DashboardCharts.instances['chartAquecimento'] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Horas de Aquecimento',
+                data: values,
+                backgroundColor: 'rgba(255, 99, 71, 0.7)',
+                borderColor: 'rgb(255, 99, 71)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: 'Horas' }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.parsed.y.toFixed(1)} horas`
+                    }
+                }
+            }
+        }
+    });
+}
+
+// MODALS
+
+function showCreateOFModal() {
+    const modalBody = document.getElementById('modal-body');
+    const modalTitle = document.getElementById('modal-title');
+    modalTitle.textContent = 'Criar Nova Ordem de Fabrico';
+
+    modalBody.innerHTML = `
+        <div class="form-group">
+            <label>Número OF</label>
+            <input type="number" id="input-of-num" class="form-control" placeholder="Ex: 123">
+        </div>
+        <div class="form-group">
+            <label>Cliente</label>
+            <input type="text" id="input-of-client" class="form-control">
+        </div>
+        <div class="form-group">
+            <label>Descrição/Produto</label>
+            <input type="text" id="input-of-desc" class="form-control">
+        </div>
+        <div class="form-group">
+            <label>Estado</label>
+            <select id="input-of-status" class="form-control">
+                <option value="Pendente">Pendente</option>
+                <option value="Em Produção">Em Produção</option>
+                <option value="Concluída">Concluída</option>
+                <option value="Cancelada">Cancelada</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Data de Entrada</label>
+            <input type="date" id="input-of-date" class="form-control" value="${new Date().toISOString().split('T')[0]}">
+        </div>
+        <div class="form-group">
+            <label>Notas</label>
+            <textarea id="input-of-notes" class="form-control" rows="3"></textarea>
+        </div>
+    `;
+
+    openModal(async () => {
+        const data = {
+            numero: document.getElementById('input-of-num').value,
+            cliente: document.getElementById('input-of-client').value,
+            descricao: document.getElementById('input-of-desc').value,
+            estado: document.getElementById('input-of-status').value,
+            dataEntrada: document.getElementById('input-of-date').value,
+            notas: document.getElementById('input-of-notes').value
+        };
+        if (!data.numero) {
+            showToast('Número da OF é obrigatório', 'error');
+            return false; // keep open
+        }
+        try {
+            await API.saveOF(data);
+            showToast('OF criada com sucesso!', 'success');
+            await loadAllData(); // reload to refresh OF table
+            return true; // close modal
+        } catch (e) {
+            showToast('Erro ao criar OF: ' + e.message, 'error');
+            return false;
+        }
+    });
+}
+
+window.showEditOFModal = async function(ofNum) {
+    try {
+        const res = await API.getOFsList(); // Fetch fresh list or find in cache
+        const target = (res.data || []).find(o => String(o.numero) === String(ofNum));
+        // Note: if OF exists only in shifts but not in OF DB yet, 'target' might be undefined
+        // We should allow creating metadata for it.
+
+        const modalBody = document.getElementById('modal-body');
+        const modalTitle = document.getElementById('modal-title');
+        modalTitle.textContent = `Editar OF ${ofNum}`;
+
+        const safeVal = (v) => v || '';
+
+        modalBody.innerHTML = `
+             <input type="hidden" id="input-of-id" value="${target?.id || ''}">
+             <div class="form-group">
+                <label>Número OF</label>
+                <input type="number" id="input-of-num" class="form-control" value="${ofNum}" readonly disabled>
+            </div>
+            <div class="form-group">
+                <label>Cliente</label>
+                <input type="text" id="input-of-client" class="form-control" value="${safeVal(target?.cliente)}">
+            </div>
+            <div class="form-group">
+                <label>Descrição</label>
+                <input type="text" id="input-of-desc" class="form-control" value="${safeVal(target?.descricao)}">
+            </div>
+            <div class="form-group">
+                <label>Estado</label>
+                <select id="input-of-status" class="form-control">
+                    <option value="Pendente" ${target?.estado === 'Pendente' ? 'selected' : ''}>Pendente</option>
+                    <option value="Em Produção" ${target?.estado === 'Em Produção' ? 'selected' : ''}>Em Produção</option>
+                    <option value="Concluída" ${target?.estado === 'Concluída' ? 'selected' : ''}>Concluída</option>
+                    <option value="Cancelada" ${target?.estado === 'Cancelada' ? 'selected' : ''}>Cancelada</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Data de Entrada</label>
+                <input type="date" id="input-of-date" class="form-control" value="${target?.dataEntrada || ''}">
+            </div>
+             <div class="form-group">
+                <label>Notas</label>
+                <textarea id="input-of-notes" class="form-control" rows="3">${safeVal(target?.notas)}</textarea>
+            </div>
+        `;
+
+        openModal(async () => {
+            const data = {
+                id: document.getElementById('input-of-id').value,
+                numero: ofNum, // keep original number
+                cliente: document.getElementById('input-of-client').value,
+                descricao: document.getElementById('input-of-desc').value,
+                estado: document.getElementById('input-of-status').value,
+                dataEntrada: document.getElementById('input-of-date').value,
+                notas: document.getElementById('input-of-notes').value
+            };
+            try {
+                await API.saveOF(data);
+                showToast('OF atualizada!', 'success');
+                await loadAllData();
+                return true;
+            } catch (e) {
+                showToast('Erro: ' + e.message, 'error');
+                return false;
+            }
+        });
+    } catch (e) {
+        showToast('Erro ao carregar dados da OF', 'error');
+    }
+}
+
+// Modal Helper
+function openModal(onConfirm) {
+    const modal = document.getElementById('modal-overlay');
+    const closeBtn = document.getElementById('modal-close');
+    const cancelBtn = document.getElementById('modal-cancel');
+    const confirmBtn = document.getElementById('modal-confirm');
+
+    confirmBtn.textContent = 'Confirmar';
+    confirmBtn.className = 'btn btn-primary';
+
+    closeBtn.onclick = closeModal;
+    cancelBtn.onclick = closeModal;
+
+    confirmBtn.onclick = async () => {
+        confirmBtn.disabled = true;
+        const result = await onConfirm();
+        confirmBtn.disabled = false;
+        if (result !== false) closeModal();
+    };
+
+    modal.classList.add('active');
 }

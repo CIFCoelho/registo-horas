@@ -59,6 +59,10 @@ const API = {
     },
 
     // Specific Methods
+    getOFsList: () => API.get('/ofs-list'),
+    saveOF: (data) => API.post('/of-manage', data),
+    getAquecimento: (year) => API.get('/aquecimento', { year }),
+
     getSummary: () => API.get('/summary'),
     getEmployees: (year) => API.get('/employees', { year }),
     getOFs: (year) => API.get('/ofs', { year }),

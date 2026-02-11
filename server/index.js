@@ -20,6 +20,7 @@ const PREPARACAO_MADEIRAS_DB_ID =
   null;
 const MONTAGEM_DB_ID = process.env.MONTAGEM_DB_ID;
 const CUSTO_FUNCIONARIOS_DB_ID = process.env.CUSTO_FUNCIONARIOS_DB_ID;
+const OFS_DB_ID = process.env.OFS_DB_ID;
 const PINTURA_ISOLANTE_PROP = process.env.PINTURA_ISOLANTE_PROP || 'Isolante Aplicado';
 const PINTURA_TAPA_PROP = process.env.PINTURA_TAPA_PROP || 'Tapa-Poros';
 const PINTURA_VERNIZ_PROP = process.env.PINTURA_VERNIZ_PROP || 'Verniz Aplicado';
@@ -39,7 +40,8 @@ const NOTION_DATABASES = {
   pintura: PINTURA_DB_ID,
   preparacao: PREPARACAO_MADEIRAS_DB_ID,
   montagem: MONTAGEM_DB_ID,
-  custoFuncionarios: CUSTO_FUNCIONARIOS_DB_ID
+  custoFuncionarios: CUSTO_FUNCIONARIOS_DB_ID,
+  ofs: OFS_DB_ID
 };
 
 const ESTOFAGEM_REGISTOS_PROPS = {
@@ -641,6 +643,29 @@ app.get('/api/dashboard/summary', async (req, res) => {
 
     const [activeAcabamento, activeEstofagem, activePintura, activePreparacao, activeMontagem] = await batchQueries(queries, 2);
 
+    // Fetch latest OF from Estofagem
+    let latestEstofagemOF = null;
+    try {
+      const latestResp = await notionFetch(`https://api.notion.com/v1/databases/${ESTOFAGEM_TEMPO_DB_ID}/query`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          sorts: [{ property: 'Início do Turno', direction: 'descending' }],
+          page_size: 1,
+          filter: { property: 'Final do Turno', date: { is_not_empty: true } }
+        })
+      });
+      if (latestResp.ok) {
+        const latestJson = await latestResp.json();
+        const page = latestJson.results?.[0];
+        if (page) {
+          latestEstofagemOF = page.properties?.['Ordem de Fabrico']?.number || null;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to get latest Estofagem OF:', e.message);
+    }
+
     res.json({
       ok: true,
       activeWorkers: {
@@ -649,7 +674,8 @@ app.get('/api/dashboard/summary', async (req, res) => {
         pintura: activePintura,
         preparacao: activePreparacao,
         montagem: activeMontagem
-      }
+      },
+      latestEstofagemOF
     });
     console.log(`[dashboard/summary] completed in ${Date.now() - startTime}ms`);
   } catch (e) {
@@ -734,8 +760,20 @@ app.get('/api/dashboard/employees', async (req, res) => {
         field.split(',').forEach(rawName => {
           const name = rawName.trim();
           if (!name) return;
-          if (!employeeStats[name]) employeeStats[name] = { name, hours: 0, units: 0, cost: 0, section: {} };
+          if (!employeeStats[name]) employeeStats[name] = {
+            name, hours: 0, units: 0,
+            unitsAcabamento: 0, unitsEstofagem: 0,
+            cost: 0, section: {}
+          };
           employeeStats[name].units += 1;
+
+          // Credit to section based on where the employee primarily works (or has hours)
+          if (employeeStats[name].section?.['Acabamento'] > 0) {
+            employeeStats[name].unitsAcabamento += 1;
+          }
+          if (employeeStats[name].section?.['Estofagem'] > 0) {
+            employeeStats[name].unitsEstofagem += 1;
+          }
         });
       };
 
@@ -768,11 +806,8 @@ app.get('/api/dashboard/employees', async (req, res) => {
       if (!dataDate) return;
       const month = new Date(dataDate).getMonth();
       // Count each record as units (Cru + TP entries)
-      const cru = page.properties?.['Cru Por:']?.rich_text?.[0]?.plain_text || '';
-      const tp = page.properties?.['TP por:']?.rich_text?.[0]?.plain_text || '';
-      const cruCount = cru.split(',').filter(n => n.trim()).length;
-      const tpCount = tp.split(',').filter(n => n.trim()).length;
-      monthlyStats[month].units += Math.max(cruCount, tpCount, 1);
+      // Count 1 unit per record (Estofagem Acabamentos DB represents units produced)
+      monthlyStats[month].units += 1;
     });
 
     res.json({
@@ -795,10 +830,13 @@ app.get('/api/dashboard/ofs', async (req, res) => {
     // Or fetch all from current year
     const year = parseInt(req.query.year) || new Date().getFullYear();
     const startOfYear = new Date(year, 0, 1).toISOString();
+    const endOfYear = new Date(year + 1, 0, 1).toISOString();
 
     const filter = {
-      property: 'Início do Turno',
-      date: { on_or_after: startOfYear }
+      and: [
+        { property: 'Início do Turno', date: { on_or_after: startOfYear } },
+        { property: 'Início do Turno', date: { before: endOfYear } }
+      ]
     };
 
     const [acabamentoShifts, estofagemShifts] = await Promise.all([
@@ -873,10 +911,12 @@ app.get('/api/dashboard/ofs', async (req, res) => {
         .map(s => parseInt(s.trim(), 10))
         .filter(n => !isNaN(n));
 
+      const splitDuration = ofNumbers.length > 0 ? duration / ofNumbers.length : duration;
+
       ofNumbers.forEach(of => {
         ensureOf(of);
-        ofStats[of].totalHours += duration;
-        ofStats[of].preparacaoHours += duration;
+        ofStats[of].totalHours += splitDuration;
+        ofStats[of].preparacaoHours += splitDuration;
       });
     });
 
@@ -948,27 +988,12 @@ app.post('/api/dashboard/employee-cost', async (req, res) => {
   }
 });
 
-app.delete('/api/dashboard/employee-cost/:id', async (req, res) => {
-  const startTime = Date.now();
-  try {
-    await notionFetch(`https://api.notion.com/v1/blocks/${req.params.id}`, {
-      method: 'DELETE',
-      headers
-    });
-    res.json({ ok: true });
-    console.log(`[dashboard/employee-cost:delete] completed in ${Date.now() - startTime}ms`);
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
-  }
-});
-
 // 5. Detailed OF View
 app.get('/api/dashboard/of/:ofNumber', async (req, res) => {
   const startTime = Date.now();
   try {
     const ofNumber = parseInt(req.params.ofNumber);
-    if (!ofNumber) throw new Error('Invalid OF Number');
+    if (isNaN(ofNumber)) throw new Error('Invalid OF Number');
 
     // Filter by OF Number
     const filter = {
@@ -1626,6 +1651,143 @@ cron.schedule(
 
 // Kick an immediate ping on boot if within the window
 (async () => { try { await keepAlivePing(); } catch (_) { } })();
+
+// 5. OF Management Endpoints (CRUD)
+app.get('/api/dashboard/ofs-list', async (req, res) => {
+  const startTime = Date.now();
+  try {
+    if (!OFS_DB_ID) return res.json({ ok: true, data: [], configured: false });
+    const pages = await fetchAllPages(OFS_DB_ID, undefined);
+    const ofs = pages.map(p => ({
+      id: p.id,
+      numero: p.properties?.['Número OF']?.number || p.properties?.['OF']?.title?.[0]?.plain_text || null,
+      cliente: p.properties?.['Cliente']?.rich_text?.[0]?.plain_text || p.properties?.['Cliente']?.select?.name || '',
+      descricao: p.properties?.['Descrição']?.rich_text?.[0]?.plain_text || p.properties?.['Produto']?.rich_text?.[0]?.plain_text || '',
+      estado: p.properties?.['Estado']?.select?.name || '',
+      dataEntrada: p.properties?.['Data de Entrada']?.date?.start || null,
+      notas: p.properties?.['Notas']?.rich_text?.[0]?.plain_text || ''
+    }));
+    res.json({ ok: true, data: ofs, configured: true });
+    console.log(`[dashboard/ofs-list] completed in ${Date.now() - startTime}ms`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+app.post('/api/dashboard/of-manage', async (req, res) => {
+  const startTime = Date.now();
+  try {
+    if (!OFS_DB_ID) throw new Error('OFS_DB_ID not configured');
+    const { id, numero, cliente, descricao, estado, dataEntrada, notas } = req.body;
+
+    const properties = {};
+    if (numero !== undefined) properties['Número OF'] = { number: Number(numero) };
+    if (cliente !== undefined) properties['Cliente'] = { rich_text: [{ text: { content: String(cliente) } }] };
+    if (descricao !== undefined) properties['Descrição'] = { rich_text: [{ text: { content: String(descricao) } }] };
+    if (estado !== undefined) properties['Estado'] = { select: { name: String(estado) } };
+    if (dataEntrada) properties['Data de Entrada'] = { date: { start: dataEntrada } };
+    if (notas !== undefined) properties['Notas'] = { rich_text: [{ text: { content: String(notas) } }] };
+
+    if (id) {
+      await notionFetch(`https://api.notion.com/v1/pages/${id}`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ properties })
+      });
+    } else {
+      if (!properties['Número OF']) throw new Error('Número OF é obrigatório');
+      // Assume "Número OF" is a number property. If it is the title, structure is different.
+      // Based on usual certoma schema, let's stick to the plan.
+      await notionFetch('https://api.notion.com/v1/pages', {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          parent: { database_id: OFS_DB_ID },
+          properties
+        })
+      });
+    }
+    res.json({ ok: true });
+    console.log(`[dashboard/of-manage] completed in ${Date.now() - startTime}ms`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// 6. Aquecimento (Heating) Tracking
+app.get('/api/dashboard/aquecimento', async (req, res) => {
+  const startTime = Date.now();
+  try {
+    if (!PINTURA_DB_ID) return res.json({ ok: true, data: { total: 0, monthly: [] }, configured: false });
+
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const startOfYear = new Date(year, 0, 1).toISOString();
+    const endOfYear = new Date(year + 1, 0, 1).toISOString();
+
+    const filter = {
+      and: [
+        { property: 'Início do Turno', date: { on_or_after: startOfYear } },
+        { property: 'Início do Turno', date: { before: endOfYear } }
+      ]
+    };
+
+    const pages = await fetchAllPages(PINTURA_DB_ID, filter);
+
+    let totalAquecimento = 0;
+    const monthlyAquecimento = Array(12).fill(0);
+
+    pages.forEach(page => {
+      const aquecAliases = PINTURA_PROP_ALIASES.aquecimento || ['Utilização do Aquecimento'];
+      let aquecValue = 0;
+      for (const alias of aquecAliases) {
+        const prop = page.properties?.[alias];
+        if (prop && prop.type === 'number' && prop.number !== null) {
+          aquecValue = prop.number;
+          break;
+        }
+      }
+
+      if (aquecValue > 0) {
+        totalAquecimento += aquecValue;
+        const startDate = page.properties?.['Início do Turno']?.date?.start;
+        if (startDate) {
+          const month = new Date(startDate).getMonth();
+          monthlyAquecimento[month] += aquecValue;
+        }
+      }
+    });
+
+    res.json({
+      ok: true,
+      configured: true,
+      data: {
+        total: totalAquecimento,
+        monthly: monthlyAquecimento
+      }
+    });
+    console.log(`[dashboard/aquecimento] completed in ${Date.now() - startTime}ms`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// 7. Delete Employee Cost (archive Notion page)
+app.delete('/api/dashboard/employee-cost/:id', async (req, res) => {
+  const startTime = Date.now();
+  try {
+    await notionFetch(`https://api.notion.com/v1/pages/${req.params.id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ archived: true })
+    });
+    res.json({ ok: true });
+    console.log(`[dashboard/employee-cost:delete] completed in ${Date.now() - startTime}ms`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
 
 // 🚀 Start the server
 app.listen(PORT, () => {

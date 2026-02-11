@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
     <link rel="stylesheet" href="css/dashboard.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
+
 <body>
 
     <!-- Authentication Overlay -->
@@ -139,25 +141,25 @@
                 <!-- Summary Stats -->
                 <div class="stats-grid" id="summary-stats">
                     <div class="stat-card">
-                        <h3>Total Horas</h3>
+                        <h3>Total Horas (Ano)</h3>
                         <div class="value" id="stat-total-hours">
                             <span class="spinner-small"></span>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <h3>Funcionários Ativos</h3>
+                        <h3>Ativos Agora</h3>
                         <div class="value" id="stat-active-employees">
                             <span class="spinner-small"></span>
                         </div>
                     </div>
                     <div class="stat-card">
-                        <h3>OFs em Curso</h3>
+                        <h3>Próxima OF Pronta</h3>
                         <div class="value" id="stat-total-ofs">
                             <span class="spinner-small"></span>
                         </div>
                     </div>
-                    <div class="stat-card highlight">
-                        <h3>Secção Mais Ativa</h3>
+                    <div class="stat-card">
+                        <h3>Horas desde Janeiro</h3>
                         <div class="value" id="stat-most-active-section">
                             <span class="spinner-small"></span>
                         </div>
@@ -170,25 +172,36 @@
                     </div>
                 </div>
 
-                <!-- Charts Row 1 -->
+                <!-- Charts Row 1: Split Performance -->
                 <div class="grid-2">
                     <div class="chart-container">
-                        <h2>🏆 Performance por Funcionário (Top 10)</h2>
-                        <div class="chart-wrapper" id="chart-employee-wrapper">
-                            <div class="loading-overlay" id="loading-employee">
+                        <h2>Acabamento — Horas vs Unidades (Top 10)</h2>
+                        <div class="chart-wrapper">
+                            <div class="loading-overlay" id="loading-acabamento">
                                 <div class="spinner"></div>
                             </div>
-                            <canvas id="chartEmployeePerformance"></canvas>
+                            <canvas id="chartAcabamentoPerformance"></canvas>
                         </div>
                     </div>
                     <div class="chart-container">
-                        <h2>⏱️ Progresso por OF (Recentes)</h2>
-                        <div class="chart-wrapper" id="chart-of-wrapper">
-                            <div class="loading-overlay" id="loading-of">
+                        <h2>Estofagem — Horas vs Unidades (Top 10)</h2>
+                        <div class="chart-wrapper">
+                            <div class="loading-overlay" id="loading-estofagem">
                                 <div class="spinner"></div>
                             </div>
-                            <canvas id="chartOFProgress"></canvas>
+                            <canvas id="chartEstofagemPerformance"></canvas>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Full-width OF Progress Chart -->
+                <div class="chart-container">
+                    <h2>Progresso por OF (Últimas 12)</h2>
+                    <div class="chart-wrapper large">
+                        <div class="loading-overlay" id="loading-of">
+                            <div class="spinner"></div>
+                        </div>
+                        <canvas id="chartOFProgress"></canvas>
                     </div>
                 </div>
 
@@ -210,7 +223,8 @@
                 <div class="view-header">
                     <h2>👥 Análise de Funcionários</h2>
                     <div class="search-box">
-                        <input type="text" id="employee-search" placeholder="Pesquisar funcionário..." class="search-input">
+                        <input type="text" id="employee-search" placeholder="Pesquisar funcionário..."
+                            class="search-input">
                     </div>
                 </div>
 
@@ -225,9 +239,14 @@
             <!-- VIEW: OFs -->
             <div id="view-ofs" class="view-section">
                 <div class="view-header">
-                    <h2>📦 Ordens de Fabrico</h2>
-                    <div class="search-box">
-                        <input type="text" id="of-search" placeholder="Pesquisar OF..." class="search-input">
+                    <h2>Ordens de Fabrico</h2>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <div class="search-box">
+                            <input type="text" id="of-search" placeholder="Pesquisar OF..." class="search-input">
+                        </div>
+                        <button class="btn btn-primary" id="btn-create-of" style="display: none;">
+                            <span>+</span> Criar OF
+                        </button>
                     </div>
                 </div>
 
@@ -288,6 +307,25 @@
                         </tbody>
                     </table>
                 </div>
+
+                <!-- Aquecimento (Heating) Tracking -->
+                <div class="chart-container" style="margin-top: 30px;">
+                    <h2>Aquecimento — Secção Pintura</h2>
+                    <p style="color: var(--text-light); margin-bottom: 15px;">
+                        Horas de utilização do sistema de aquecimento (registadas na secção Pintura)
+                    </p>
+                    <div class="stats-grid" style="margin-bottom: 20px;">
+                        <div class="stat-card">
+                            <h3>Total Aquecimento (Ano)</h3>
+                            <div class="value" id="stat-aquecimento-total">
+                                <span class="spinner-small"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper" id="chart-aquecimento-wrapper">
+                        <canvas id="chartAquecimento"></canvas>
+                    </div>
+                </div>
             </div>
 
             <!-- VIEW: Detail (Employee or OF) -->
@@ -322,4 +360,5 @@
     <script src="js/charts.js"></script>
     <script src="js/main.js"></script>
 </body>
+
 </html>
