@@ -69,6 +69,10 @@
                     <span class="nav-icon">👥</span>
                     <span class="nav-text">Funcionários</span>
                 </li>
+                <li class="nav-item" data-view="comparacao">
+                    <span class="nav-icon">⚖️</span>
+                    <span class="nav-text">Comparação</span>
+                </li>
                 <li class="nav-item" data-view="ofs">
                     <span class="nav-icon">📦</span>
                     <span class="nav-text">Ordens de Fabrico</span>
@@ -320,6 +324,80 @@
                     <div class="chart-wrapper" id="chart-aquecimento-wrapper">
                         <canvas id="chartAquecimento"></canvas>
                     </div>
+                </div>
+            </div>
+
+            <!-- VIEW: Comparação -->
+            <div id="view-comparacao" class="view-section">
+                <div class="view-header">
+                    <h2>⚖️ Comparar Funcionários</h2>
+                </div>
+
+                <div class="compare-controls">
+                    <div class="compare-control-row">
+                        <label class="compare-label">Funcionários:</label>
+                        <div class="compare-chips" id="compare-chips"></div>
+                        <div class="compare-add-wrapper">
+                            <button class="btn btn-secondary btn-sm" id="compare-add-btn">+ Adicionar</button>
+                            <div class="compare-add-dropdown" id="compare-add-dropdown" style="display:none;"></div>
+                        </div>
+                    </div>
+                    <div class="compare-control-row">
+                        <label class="control-label">
+                            <span>Mês:</span>
+                            <select id="compare-month" class="select-control">
+                                <option value="0">Janeiro</option>
+                                <option value="1">Fevereiro</option>
+                                <option value="2">Março</option>
+                                <option value="3">Abril</option>
+                                <option value="4">Maio</option>
+                                <option value="5">Junho</option>
+                                <option value="6">Julho</option>
+                                <option value="7">Agosto</option>
+                                <option value="8">Setembro</option>
+                                <option value="9">Outubro</option>
+                                <option value="10">Novembro</option>
+                                <option value="11">Dezembro</option>
+                            </select>
+                        </label>
+                        <span class="compare-hint" id="compare-hint">Escolha 1 a 4 funcionários para comparar.</span>
+                    </div>
+                </div>
+
+                <div class="compare-kpi-grid" id="compare-kpi-grid"></div>
+
+                <div class="grid-2">
+                    <div class="chart-container">
+                        <h2>Horas por secção</h2>
+                        <div class="chart-wrapper">
+                            <canvas id="chartCompareSections"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <h2>Horas por dia do mês</h2>
+                        <div class="chart-wrapper">
+                            <canvas id="chartCompareDaily"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <h2>📋 Registos do período</h2>
+                    <table class="data-table" id="compare-history-table">
+                        <thead>
+                            <tr>
+                                <th>Data</th>
+                                <th>Funcionário</th>
+                                <th>OF</th>
+                                <th>Secção</th>
+                                <th>Duração</th>
+                                <th>Custo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="compare-history-body">
+                            <tr><td colspan="6" class="loading-cell">Sem funcionários selecionados.</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 

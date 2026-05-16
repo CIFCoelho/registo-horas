@@ -1239,24 +1239,42 @@ app.get('/api/dashboard/employee/:name', async (req, res) => {
       { dbId: MONTAGEM_DB_ID,          label: 'Montagem',   textOF: false }
     ];
 
-    const fetched = await Promise.all(sections.map(async (s) => {
-      if (!s.dbId) return { ...s, shifts: [], props: SHIFT_PROP_FALLBACK };
-      try {
-        const props = await resolveDbProps(s.dbId);
-        const filter = {
-          and: [
-            { property: props.funcionario, title: { equals: name } },
-            { property: props.inicioTurno, date: { on_or_after: startOfYear } },
-            { property: props.inicioTurno, date: { before: endOfYear } }
-          ]
-        };
-        const shifts = await fetchAllPages(s.dbId, filter);
-        return { ...s, shifts, props };
-      } catch (e) {
-        console.warn(`[dashboard/employee] ${s.label} failed:`, e.message);
-        return { ...s, shifts: [], props: SHIFT_PROP_FALLBACK };
-      }
-    }));
+    // Units from Estofagem - Registos Acab. (Cru + TP credits) for this employee, by date
+    const unitsDateFilter = {
+      and: [
+        { property: ESTOFAGEM_REGISTOS_PROPS.data, date: { on_or_after: startOfYear } },
+        { property: ESTOFAGEM_REGISTOS_PROPS.data, date: { before: endOfYear } }
+      ]
+    };
+
+    const [fetched, unitsPages] = await Promise.all([
+      Promise.all(sections.map(async (s) => {
+        if (!s.dbId) return { ...s, shifts: [], props: SHIFT_PROP_FALLBACK };
+        try {
+          const props = await resolveDbProps(s.dbId);
+          const filter = {
+            and: [
+              { property: props.funcionario, title: { equals: name } },
+              { property: props.inicioTurno, date: { on_or_after: startOfYear } },
+              { property: props.inicioTurno, date: { before: endOfYear } }
+            ]
+          };
+          const shifts = await fetchAllPages(s.dbId, filter);
+          return { ...s, shifts, props };
+        } catch (e) {
+          console.warn(`[dashboard/employee] ${s.label} failed:`, e.message);
+          return { ...s, shifts: [], props: SHIFT_PROP_FALLBACK };
+        }
+      })),
+      (async () => {
+        try {
+          return await fetchAllPages(ESTOFAGEM_ACABAMENTOS_DB_ID, unitsDateFilter);
+        } catch (e) {
+          console.warn('[dashboard/employee] units query failed:', e.message);
+          return [];
+        }
+      })()
+    ]);
 
     const formatShift = (p, props, section, textOF) => {
       const ofProp = p.properties?.[props.of];
@@ -1276,11 +1294,29 @@ app.get('/api/dashboard/employee/:name', async (req, res) => {
       .flatMap(s => s.shifts.map(p => formatShift(p, s.props, s.label, s.textOF)))
       .sort((a, b) => new Date(b.start) - new Date(a.start));
 
+    // Filter unit credits where this employee appears in Cru Por: or TP por:
+    const nameKey = name.trim().toLowerCase();
+    const isCredited = (rawField) => {
+      if (!rawField) return false;
+      return rawField.split(',').some(n => n.trim().toLowerCase() === nameKey);
+    };
+
+    const unitsHistory = [];
+    unitsPages.forEach(p => {
+      const cru = p.properties?.[ESTOFAGEM_REGISTOS_PROPS.cru]?.rich_text?.[0]?.plain_text || '';
+      const tp  = p.properties?.[ESTOFAGEM_REGISTOS_PROPS.tp]?.rich_text?.[0]?.plain_text || '';
+      const date = p.properties?.[ESTOFAGEM_REGISTOS_PROPS.data]?.date?.start || null;
+      const of   = p.properties?.[ESTOFAGEM_REGISTOS_PROPS.of]?.number ?? null;
+      if (isCredited(cru)) unitsHistory.push({ date, of, type: 'cru', id: p.id });
+      if (isCredited(tp))  unitsHistory.push({ date, of, type: 'tp',  id: p.id });
+    });
+
     res.json({
       ok: true,
       data: {
         name,
-        history: shiftHistory
+        history: shiftHistory,
+        units: unitsHistory
       }
     });
     console.log(`[dashboard/employee] completed in ${Date.now() - startTime}ms`);

@@ -10,6 +10,13 @@ let ofsData = [];
 let costsData = [];
 let monthlyData = [];
 
+// Comparação view state
+const MAX_COMPARE_EMPLOYEES = 4;
+const COMPARE_COLORS = ['#E6692D', '#2c3e50', '#28a745', '#17a2b8'];
+let compareSelected = [];                 // employee names
+let compareMonth = new Date().getMonth(); // 0..11
+const compareEmployeeDetail = new Map();  // name -> { history, units, fetchedYear }
+
 // Section constants
 const SECTION_COLORS = {
     'Acabamento': '#E6692D',
@@ -165,6 +172,7 @@ function switchView(viewName) {
         'employees': 'Funcionários',
         'ofs': 'Ordens de Fabrico',
         'costs': 'Gestão de Custos',
+        'comparacao': 'Comparação',
         'detail': 'Detalhe'
     };
     document.getElementById('page-title').textContent = titles[viewName] || 'Dashboard';
@@ -176,6 +184,8 @@ function switchView(viewName) {
         loadOFsView();
     } else if (viewName === 'costs') {
         loadCostsView();
+    } else if (viewName === 'comparacao') {
+        loadComparacaoView();
     } else if (viewName === 'employees') {
         renderEmployeesGrid(employeesData);
     } else if (viewName === 'ofs') {
@@ -191,12 +201,19 @@ function setupControls() {
     // Year selector
     document.getElementById('year-selector').addEventListener('change', async (e) => {
         currentYear = parseInt(e.target.value);
+        compareEmployeeDetail.clear(); // year changed → cached comparison data is stale
         await loadAllData();
+        if (document.getElementById('view-comparacao')?.classList.contains('active')) {
+            await refreshComparacao();
+        }
     });
 
     // Section filter
     document.getElementById('section-filter').addEventListener('change', (e) => {
         currentSection = e.target.value;
+        if (document.getElementById('view-comparacao')?.classList.contains('active')) {
+            renderComparacao();
+        }
         if (employeesData.length > 0) {
             renderEmployeesGrid(filterBySection(employeesData));
             DashboardCharts.renderAcabamentoPerformance('chartAcabamentoPerformance', filterBySection(employeesData));
@@ -748,6 +765,315 @@ function renderCostsTable() {
             </tr>
         `;
     }).join('');
+}
+
+// ==========================================================================
+// Comparação View
+// ==========================================================================
+
+let comparacaoControlsBound = false;
+
+async function loadComparacaoView() {
+    // Ensure employees + costs are available for chip picker and KPI calcs
+    if (employeesData.length === 0) {
+        try {
+            const r = await API.getEmployees(currentYear);
+            employeesData = r.data || [];
+            monthlyData = r.monthly || [];
+        } catch (e) {
+            showToast('Erro ao carregar funcionários: ' + e.message, 'error');
+        }
+    }
+    if (costsData.length === 0) {
+        try {
+            const r = await API.getCosts();
+            costsData = r.data || [];
+        } catch (e) { /* non-fatal */ }
+    }
+
+    bindComparacaoControls();
+    document.getElementById('compare-month').value = String(compareMonth);
+
+    // Default: if nothing selected yet, prefill with the two employees with most hours this year
+    if (compareSelected.length === 0 && employeesData.length > 0) {
+        compareSelected = [...employeesData]
+            .filter(e => (e.hours || 0) > 0)
+            .sort((a, b) => b.hours - a.hours)
+            .slice(0, 2)
+            .map(e => e.name);
+    }
+
+    renderCompareChips();
+    await refreshComparacao();
+}
+
+function bindComparacaoControls() {
+    if (comparacaoControlsBound) return;
+    comparacaoControlsBound = true;
+
+    document.getElementById('compare-month').addEventListener('change', (e) => {
+        compareMonth = parseInt(e.target.value, 10);
+        renderComparacao();
+    });
+
+    document.getElementById('compare-add-btn').addEventListener('click', toggleAddDropdown);
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        const wrapper = document.querySelector('.compare-add-wrapper');
+        if (wrapper && !wrapper.contains(e.target)) {
+            document.getElementById('compare-add-dropdown').style.display = 'none';
+        }
+    });
+}
+
+function toggleAddDropdown() {
+    const dropdown = document.getElementById('compare-add-dropdown');
+    if (dropdown.style.display === 'block') {
+        dropdown.style.display = 'none';
+        return;
+    }
+    if (compareSelected.length >= MAX_COMPARE_EMPLOYEES) {
+        showToast(`Máximo de ${MAX_COMPARE_EMPLOYEES} funcionários por comparação.`, 'warning');
+        return;
+    }
+    const available = employeesData
+        .filter(e => !compareSelected.includes(e.name))
+        .sort((a, b) => (b.hours || 0) - (a.hours || 0));
+    if (available.length === 0) {
+        dropdown.innerHTML = '<button disabled>Sem funcionários disponíveis</button>';
+    } else {
+        dropdown.innerHTML = available.map(e => {
+            const h = Math.round(e.hours || 0);
+            return `<button data-name="${escapeAttr(e.name)}">${e.name} <span style="color:var(--text-light);font-size:0.85em;">(${h}h ano)</span></button>`;
+        }).join('');
+        dropdown.querySelectorAll('button[data-name]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                addCompareEmployee(btn.dataset.name);
+                dropdown.style.display = 'none';
+            });
+        });
+    }
+    dropdown.style.display = 'block';
+}
+
+function escapeAttr(s) {
+    return String(s || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function addCompareEmployee(name) {
+    if (compareSelected.includes(name)) return;
+    if (compareSelected.length >= MAX_COMPARE_EMPLOYEES) return;
+    compareSelected.push(name);
+    renderCompareChips();
+    await refreshComparacao();
+}
+
+function removeCompareEmployee(name) {
+    compareSelected = compareSelected.filter(n => n !== name);
+    renderCompareChips();
+    refreshComparacao();
+}
+
+function renderCompareChips() {
+    const wrap = document.getElementById('compare-chips');
+    if (!wrap) return;
+    if (compareSelected.length === 0) {
+        wrap.innerHTML = '<span style="color:var(--text-light);font-style:italic;">Nenhum funcionário selecionado.</span>';
+    } else {
+        wrap.innerHTML = compareSelected.map((name, idx) => {
+            const color = COMPARE_COLORS[idx % COMPARE_COLORS.length];
+            return `<span class="compare-chip" style="border-color:${color};color:${color};">
+                <strong>${name}</strong>
+                <button class="compare-chip-remove" data-name="${escapeAttr(name)}" title="Remover">×</button>
+            </span>`;
+        }).join('');
+        wrap.querySelectorAll('.compare-chip-remove').forEach(btn => {
+            btn.addEventListener('click', () => removeCompareEmployee(btn.dataset.name));
+        });
+    }
+    const addBtn = document.getElementById('compare-add-btn');
+    if (addBtn) addBtn.disabled = compareSelected.length >= MAX_COMPARE_EMPLOYEES;
+}
+
+async function refreshComparacao() {
+    if (compareSelected.length === 0) {
+        renderComparacao();
+        return;
+    }
+
+    // Fetch detail for each selected employee in parallel (cached server-side)
+    const toFetch = compareSelected.filter(name => {
+        const cached = compareEmployeeDetail.get(name);
+        return !cached || cached.fetchedYear !== currentYear;
+    });
+
+    if (toFetch.length > 0) {
+        const grid = document.getElementById('compare-kpi-grid');
+        if (grid) grid.innerHTML = '<div class="compare-empty"><div class="spinner"></div><p>A carregar dados...</p></div>';
+        try {
+            await Promise.all(toFetch.map(async (name) => {
+                const r = await API.getEmployeeDetail(name, currentYear);
+                compareEmployeeDetail.set(name, {
+                    history: r.data?.history || [],
+                    units:   r.data?.units   || [],
+                    fetchedYear: currentYear
+                });
+            }));
+        } catch (e) {
+            showToast('Erro ao carregar comparação: ' + e.message, 'error');
+        }
+    }
+
+    renderComparacao();
+}
+
+function buildEmployeePeriodStats(name, idx) {
+    const cached = compareEmployeeDetail.get(name) || { history: [], units: [] };
+    const year = currentYear;
+
+    const inPeriod = (iso) => {
+        if (!iso) return false;
+        const d = new Date(iso);
+        return d.getFullYear() === year && d.getMonth() === compareMonth;
+    };
+
+    const periodHistory = (cached.history || []).filter(h => inPeriod(h.start));
+    const periodUnits   = (cached.units   || []).filter(u => inPeriod(u.date));
+
+    // Section filter: if user picked a single section, restrict shifts
+    const filteredHistory = currentSection === 'all'
+        ? periodHistory
+        : periodHistory.filter(h => h.section === currentSection);
+
+    const hoursBySection = {};
+    let totalHours = 0;
+    filteredHistory.forEach(h => {
+        if (!h.start || !h.end) return;
+        const hours = (new Date(h.end) - new Date(h.start)) / 36e5;
+        if (!isFinite(hours) || hours < 0) return;
+        totalHours += hours;
+        hoursBySection[h.section] = (hoursBySection[h.section] || 0) + hours;
+    });
+
+    // Daily bucket
+    const daysInMonth = new Date(year, compareMonth + 1, 0).getDate();
+    const dailyHours = new Array(daysInMonth).fill(0);
+    filteredHistory.forEach(h => {
+        if (!h.start || !h.end) return;
+        const start = new Date(h.start);
+        const hours = (new Date(h.end) - start) / 36e5;
+        if (!isFinite(hours) || hours < 0) return;
+        const day = start.getDate() - 1;
+        if (day >= 0 && day < daysInMonth) dailyHours[day] += hours;
+    });
+
+    // Distinct workdays for average
+    const workdays = new Set();
+    filteredHistory.forEach(h => {
+        if (h.start) workdays.add(new Date(h.start).toDateString());
+    });
+
+    const costEntry = costsData.find(c => c.name.toLowerCase() === name.toLowerCase());
+    const cost = costEntry ? totalHours * costEntry.cost : null;
+    const units = periodUnits.length;
+
+    return {
+        name,
+        color: COMPARE_COLORS[idx % COMPARE_COLORS.length],
+        hours: totalHours,
+        hoursBySection,
+        dailyHours,
+        units,
+        shifts: filteredHistory.length,
+        cost,
+        costMissing: !costEntry && totalHours > 0,
+        avgHoursPerDay: workdays.size > 0 ? totalHours / workdays.size : 0,
+        history: filteredHistory
+    };
+}
+
+function renderComparacao() {
+    const grid = document.getElementById('compare-kpi-grid');
+    const histBody = document.getElementById('compare-history-body');
+    if (!grid || !histBody) return;
+
+    if (compareSelected.length === 0) {
+        grid.innerHTML = '<div class="compare-empty">Selecione 1 a 4 funcionários acima para começar.</div>';
+        histBody.innerHTML = '<tr><td colspan="6" class="loading-cell">Sem funcionários selecionados.</td></tr>';
+        DashboardCharts.destroy('chartCompareSections');
+        DashboardCharts.destroy('chartCompareDaily');
+        return;
+    }
+
+    const stats = compareSelected.map((name, idx) => buildEmployeePeriodStats(name, idx));
+
+    // KPI cards
+    grid.innerHTML = stats.map(s => renderCompareKPI(s)).join('');
+
+    // Charts
+    DashboardCharts.renderComparisonHoursBySection('chartCompareSections', stats);
+    DashboardCharts.renderComparisonDaily('chartCompareDaily', stats, currentYear, compareMonth);
+
+    // Combined history table
+    const allRows = stats.flatMap(s => s.history.map(h => ({ ...h, _emp: s.name, _color: s.color })));
+    allRows.sort((a, b) => new Date(b.start) - new Date(a.start));
+
+    if (allRows.length === 0) {
+        histBody.innerHTML = '<tr><td colspan="6" class="loading-cell">Sem turnos no período selecionado.</td></tr>';
+    } else {
+        histBody.innerHTML = allRows.map(h => {
+            const start = h.start ? new Date(h.start) : null;
+            const end   = h.end   ? new Date(h.end)   : null;
+            const hours = (start && end) ? (end - start) / 36e5 : 0;
+            const ofDisplay = h.of == 0 ? 'Geral' : (h.of != null ? `OF ${h.of}` : '-');
+            const costEntry = costsData.find(c => c.name.toLowerCase() === h._emp.toLowerCase());
+            const cost = costEntry ? (hours * costEntry.cost).toFixed(0) + '€' : '-';
+            return `
+                <tr style="border-left:4px solid ${h._color};">
+                    <td>${start ? start.toLocaleDateString('pt-PT') + ' ' + start.toLocaleTimeString('pt-PT', {hour:'2-digit',minute:'2-digit'}) : '-'}</td>
+                    <td><strong style="color:${h._color};">${h._emp}</strong></td>
+                    <td>${ofDisplay}</td>
+                    <td>${h.section}</td>
+                    <td>${hours.toFixed(2)}h</td>
+                    <td>${cost}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+}
+
+function renderCompareKPI(s) {
+    const fmt = (n, d = 1) => (n == null ? '—' : Number(n).toFixed(d));
+    const sectionTotal = Object.values(s.hoursBySection).reduce((a, b) => a + b, 0);
+    let segments = '';
+    let legend = [];
+    if (sectionTotal > 0) {
+        Object.keys(s.hoursBySection).forEach(sec => {
+            const h = s.hoursBySection[sec];
+            const pct = (h / sectionTotal) * 100;
+            const c = SECTION_COLORS[sec] || '#ccc';
+            segments += `<span style="width:${pct.toFixed(2)}%;background:${c};" title="${sec}: ${h.toFixed(1)}h"></span>`;
+            legend.push(`<span style="color:${c};">●</span> ${SECTION_SHORT_NAMES[sec] || sec} ${h.toFixed(1)}h`);
+        });
+    }
+    const productivity = s.units > 0 && s.hours > 0 ? (s.units / s.hours).toFixed(2) + ' un/h' : '—';
+    const costLine = s.cost != null
+        ? fmt(s.cost, 0) + '€'
+        : (s.costMissing ? '<span style="color:var(--warning);" title="Custo/hora não definido para este funcionário">—</span>' : '—');
+    return `
+        <div class="compare-kpi-card" style="border-top-color:${s.color};">
+            <h3 style="color:${s.color};">${s.name}</h3>
+            <div class="compare-kpi-row"><span class="label">Horas</span><span class="value">${fmt(s.hours, 1)}h</span></div>
+            <div class="compare-kpi-section-bar">${segments || '<span style="width:100%;background:var(--background);"></span>'}</div>
+            <div class="compare-kpi-legend">${legend.join(' &nbsp; ') || '—'}</div>
+            <div class="compare-kpi-row"><span class="label">Unidades</span><span class="value">${s.units}</span></div>
+            <div class="compare-kpi-row"><span class="label">Turnos</span><span class="value">${s.shifts}</span></div>
+            <div class="compare-kpi-row"><span class="label">Média h/dia</span><span class="value">${fmt(s.avgHoursPerDay, 1)}h</span></div>
+            <div class="compare-kpi-row"><span class="label">Produtividade</span><span class="value">${productivity}</span></div>
+            <div class="compare-kpi-row"><span class="label">Custo</span><span class="value">${costLine}</span></div>
+        </div>
+    `;
 }
 
 // ==========================================================================

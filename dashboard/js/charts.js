@@ -151,6 +151,91 @@ const DashboardCharts = {
         });
     },
 
+    renderComparisonHoursBySection(canvasId, statsArr) {
+        this.destroy(canvasId);
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+
+        if (!statsArr || statsArr.length === 0) return;
+
+        // Section ordering — only those with any data
+        const SECTION_ORDER = ['Acabamento', 'Estofagem', 'Pintura', 'Preparação', 'Montagem'];
+        const sectionsWithData = SECTION_ORDER.filter(sec =>
+            statsArr.some(s => (s.hoursBySection?.[sec] || 0) > 0)
+        );
+
+        const datasets = statsArr.map(s => ({
+            label: s.name,
+            data: sectionsWithData.map(sec => +(s.hoursBySection?.[sec] || 0).toFixed(2)),
+            backgroundColor: s.color
+        }));
+
+        this.instances[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: { labels: sectionsWithData, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { stacked: false },
+                    y: { beginAtZero: true, title: { display: true, text: 'Horas' } }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}h`
+                        }
+                    }
+                }
+            }
+        });
+    },
+
+    renderComparisonDaily(canvasId, statsArr, year, monthIndex) {
+        this.destroy(canvasId);
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+
+        if (!statsArr || statsArr.length === 0) return;
+
+        const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+        const labels = [];
+        for (let d = 1; d <= daysInMonth; d++) labels.push(String(d));
+
+        const datasets = statsArr.map(s => ({
+            label: s.name,
+            data: (s.dailyHours || []).slice(0, daysInMonth).map(v => +Number(v || 0).toFixed(2)),
+            borderColor: s.color,
+            backgroundColor: s.color + '22', // ~13% alpha for the fill
+            tension: 0.25,
+            pointRadius: 2,
+            fill: false
+        }));
+
+        this.instances[canvasId] = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: 'Horas' } },
+                    x: { title: { display: true, text: 'Dia do mês' } }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}h`
+                        }
+                    }
+                }
+            }
+        });
+    },
+
     renderMonthlyTrend(canvasId, monthlyData, selectedYear = new Date().getFullYear()) {
         this.destroy(canvasId);
         const ctx = document.getElementById(canvasId).getContext('2d');

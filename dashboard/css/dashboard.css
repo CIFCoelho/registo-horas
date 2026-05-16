@@ -467,6 +467,139 @@ body {
     line-height: 1.3;
 }
 
+/* ==========================================================================
+   Comparação view
+   ========================================================================== */
+.compare-controls {
+    background: var(--card-bg);
+    padding: 16px 20px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 20px;
+}
+.compare-control-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+.compare-control-row:last-child { margin-bottom: 0; }
+.compare-label {
+    font-weight: 600;
+    color: var(--text-light);
+    font-size: 0.9em;
+}
+.compare-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+.compare-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 16px;
+    background: var(--background);
+    border: 2px solid;
+    font-size: 0.9em;
+    font-weight: 500;
+}
+.compare-chip-remove {
+    background: none;
+    border: none;
+    color: var(--text-light);
+    cursor: pointer;
+    font-size: 1.1em;
+    line-height: 1;
+    padding: 0 2px;
+}
+.compare-chip-remove:hover { color: var(--danger); }
+.compare-add-wrapper { position: relative; }
+.compare-add-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-lg);
+    max-height: 240px;
+    overflow-y: auto;
+    z-index: 100;
+    min-width: 180px;
+}
+.compare-add-dropdown button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 14px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+.compare-add-dropdown button:hover { background: var(--background); }
+.compare-hint { color: var(--text-light); font-size: 0.85em; }
+
+.compare-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 25px;
+}
+.compare-kpi-card {
+    background: var(--card-bg);
+    padding: 16px 18px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    border-top: 4px solid;
+}
+.compare-kpi-card h3 {
+    margin: 0 0 12px 0;
+    font-size: 1em;
+    color: var(--text);
+}
+.compare-kpi-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 4px 0;
+    font-size: 0.9em;
+}
+.compare-kpi-row .label { color: var(--text-light); }
+.compare-kpi-row .value { font-weight: 600; }
+.compare-kpi-section-bar {
+    margin-top: 8px;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    background: var(--background);
+}
+.compare-kpi-section-bar span {
+    height: 100%;
+    display: block;
+}
+.compare-kpi-legend {
+    margin-top: 6px;
+    font-size: 0.72em;
+    color: var(--text-light);
+    line-height: 1.4;
+}
+.compare-empty {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-light);
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    grid-column: 1 / -1; /* Span entire grid width when used inside .compare-kpi-grid */
+}
+
 .stat-card h3 {
     color: var(--text-light);
     font-size: 0.85em;
