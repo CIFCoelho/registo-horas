@@ -19,7 +19,9 @@
       "Read(//Users/franciscocoelho/.ssh/**)",
       "Bash(node --check /Users/franciscocoelho/code/registo-horas/server/index.js)",
       "Bash(node --check /Users/franciscocoelho/code/registo-horas/dashboard/js/main.js)",
-      "Bash(node --check /Users/franciscocoelho/code/registo-horas/dashboard/js/charts.js)"
+      "Bash(node --check /Users/franciscocoelho/code/registo-horas/dashboard/js/charts.js)",
+      "Bash(sed -i.bak \"s|http://192.168.1.103/|https://registo-horas.onrender.com/|g\" frontend/JS/config/*.config.js)",
+      "Bash(rm frontend/JS/config/*.config.js.bak)"
     ],
     "deny": [],
     "ask": []
