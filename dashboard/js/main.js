@@ -74,18 +74,25 @@ window.loadDashboard = async () => {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
     });
 
-    // Populate year selector dynamically
+    // Populate year selector dynamically.
+    // Range: from FIRST_DATA_YEAR (system start) up to at least MIN_TOP_YEAR,
+    // so the dropdown is correct even if the dashboard PC's clock is off.
+    const FIRST_DATA_YEAR = 2024;
+    const MIN_TOP_YEAR = 2026;
     const yearSelect = document.getElementById('year-selector');
     const thisYear = new Date().getFullYear();
+    const topYear = Math.max(thisYear, MIN_TOP_YEAR);
     yearSelect.innerHTML = '';
-    for (let y = thisYear; y >= 2025; y--) {
+    for (let y = topYear; y >= FIRST_DATA_YEAR; y--) {
         const opt = document.createElement('option');
         opt.value = y;
         opt.textContent = y;
-        if (y === thisYear) opt.selected = true;
         yearSelect.appendChild(opt);
     }
-    currentYear = thisYear;
+    // Default to the actual current year when it falls within range, otherwise the latest.
+    const defaultYear = (thisYear >= FIRST_DATA_YEAR && thisYear <= topYear) ? thisYear : topYear;
+    yearSelect.value = String(defaultYear);
+    currentYear = defaultYear;
 
     // Setup navigation
     setupNavigation();

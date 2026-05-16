@@ -4,18 +4,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Registo de Produtividade** is a lightweight, modular productivity tracking system for industrial environments optimized for legacy devices (iPad 2 with Safari 9.3.5). The system tracks employee shifts by section and work order (OF - Ordem de Fabrico), with data persisting to Notion databases via a Node.js backend hosted on Render.
+**Registo de Produtividade** is a lightweight, modular productivity tracking system for industrial environments optimized for legacy devices (iPad 2 with Safari 9.3.5). The system tracks employee shifts by section and work order (OF - Ordem de Fabrico), with data persisting to Notion databases via a Node.js backend.
 
-**Production Backend:** `https://registo-horas.onrender.com`
+### Production deployment (as of May 2026)
+
+**Most of the system runs locally** in Proxmox container CT100 on the mini-PC at `192.168.1.103`:
+- Backend: `systemd unit registo-backend` (Node 18+, Express), code at `/opt/registo-horas`, listens on 8787.
+- nginx fronts the box on port 80 and serves the tablet frontends + `/dashboard/` static files.
+- **Estofagem is the exception** — its tablet still POSTs to `https://registo-horas.onrender.com/estofagem` (Render legacy). Its frontend is still served by GitHub Pages. The Estofagem migration is the only remaining backend item.
+- Notion is the single source of truth for both deployments, so the dashboard sees all sections regardless of which backend handled the write.
+
+Deploy workflow: see `docs/DEPLOY_LOCAL.md` (mini-PC) and `docs/DEPLOY_RENDER.md` (Render + Pages). The external runbook at `~/Documents/02_Business/pixel_compile/01_clients/_ACTIVE/Certoma/01_projects/local_server_pve/04_maintenance/runbook.md` is the authoritative version for the local side.
+
+### Branches: `main` vs `dashboard-dev`
+
+Two branches feed two deployments:
+
+- **`main`** → mini-PC CT100. Section configs in `frontend/JS/config/*.config.js` point to `http://192.168.1.103/<section>`. `dashboard/js/api.js` resolves to the same host.
+- **`dashboard-dev`** → Render (backend) + GitHub Pages (frontend). The same files point to `https://registo-horas.onrender.com/<section>`.
+
+Both branches must carry **identical** code in `server/`, `dashboard/`, `frontend/HTML/`, `frontend/CSS/`. Only the URL-pointing files differ. After every meaningful change on `main`, sync `dashboard-dev`:
+
+```bash
+git fetch origin
+git checkout -B dashboard-dev origin/dashboard-dev
+git merge origin/main --no-ff -m "Merge main into dashboard-dev"
+sed -i.bak "s|http://192.168.1.103/|https://registo-horas.onrender.com/|g" frontend/JS/config/*.config.js
+rm frontend/JS/config/*.config.js.bak
+# Then manually patch dashboard/js/api.js (replace the 192.168.1.103 branch with a Render fallback)
+git add frontend/JS/config dashboard/js/api.js
+git commit -m "fix(dashboard-dev): point configs and dashboard API at Render"
+git push origin dashboard-dev
+```
+
+Render auto-redeploys; GitHub Pages re-publishes if configured to serve `dashboard-dev`. See `docs/DEPLOY_RENDER.md` for the verification steps.
 
 ### Architecture
 
 ```
-iPad 2 (Safari 9.3.5) → GitHub Pages (static frontend)
+Factory tablets (iPad 2, Android 7")
+  ├─ Acabamento, Pintura, Preparação, Montagem → nginx on 192.168.1.103
+  └─ Estofagem                                 → GitHub Pages
                       ↓
-                   Node.js Backend (Express)
+   Node.js Backend (server/index.js, Express)
+  ├─ CT100 mini-PC: systemd + nginx :80 → :8787 (most sections + dashboard API)
+  └─ Render                                    (only /estofagem)
                       ↓
-                   Notion API (databases)
+                   Notion API (shared databases)
 ```
 
 ### Key Constraints
@@ -222,19 +257,39 @@ When `of: "0"` or `of: 0`, the system records "general work" not tied to a speci
 
 ## Deployment
 
-### Backend (Render)
-- Root Directory: `server`
-- Build: `npm install`
-- Start: `npm start`
-- Runtime: Node 18+
-- Verify: `GET https://registo-horas.onrender.com/health`
+### Primary: local mini-PC (CT100 on Proxmox)
 
-### Frontend (GitHub Pages)
-- Settings → Pages → Source: "Deploy from a branch"
-- Branch: `main`, path: `/ (root)`
-- Site: `https://cifcoelho.github.io/registo-horas/`
+Used for: Acabamento, Pintura, Preparação, Montagem tablet endpoints + entire `/dashboard/`.
 
-**Note:** Frontend config files must point to production backend URL.
+```bash
+# From the laptop, after pushing to origin/main:
+ssh root@192.168.1.103
+cd /opt/registo-horas && git pull origin main && systemctl restart registo-backend
+```
+
+The `npm install` step is only needed if `server/package.json` changed. Static dashboard files take effect on `git pull` (nginx serves them directly); only `server/index.js` changes need the systemd restart.
+
+Verify after deploy:
+```bash
+curl -s http://localhost/health
+journalctl -u registo-backend -n 20 --no-pager
+curl -s http://localhost/api/dashboard/summary | jq '.activeWorkers | keys'
+```
+
+Tailscale reach: `ssh root@100.121.124.108 'pct exec 100 -- bash'`.
+
+### Legacy: Render (Estofagem only)
+
+Still in use only for the Estofagem section's POST endpoint. Frontend lives on GitHub Pages and is configured in `frontend/JS/config/estofagem.config.js` (`webAppUrl: 'https://registo-horas.onrender.com/estofagem'`).
+
+- Render Root Directory: `server`, Build: `npm install`, Start: `npm start`.
+- Verify: `GET https://registo-horas.onrender.com/health`.
+
+### Frontend (legacy GitHub Pages)
+
+Still serves the Estofagem tablet page from `main` branch. Once Estofagem migrates to the local mini-PC, GitHub Pages can be retired entirely.
+
+**Note:** Section config files determine the backend URL — keep them in sync with where each section is actually deployed.
 
 ## Known Issues & Documentation
 

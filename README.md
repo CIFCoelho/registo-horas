@@ -1,10 +1,31 @@
 # 📘 Registo de Produtividade
 
-Sistema leve e modular de registo de produtividade de colaboradores, com foco em ambientes industriais com equipamentos antigos (ex: iPad 2). Todas as secções enviam registos para bases de dados no Notion através de um backend Node.js alojado na Render.
+Sistema leve e modular de registo de produtividade de colaboradores, com foco em ambientes industriais com equipamentos antigos (ex: iPad 2). Todas as secções enviam registos para bases de dados no Notion através de um backend Node.js.
 
-Backend atual em produção: `https://registo-horas.onrender.com`
+## ⚙️ Deploy atual (Maio 2026)
 
-> 🛠 Em produção na secção **Acabamento**. Próximas secções serão migradas para o mesmo backend.
+A maior parte do sistema corre **localmente em CT100 (Proxmox)** no mini-PC `192.168.1.103`:
+
+| Componente | Localização |
+|---|---|
+| Backend Node (sections + dashboard API) | Mini-PC, `systemd unit registo-backend`, nginx em :80 → :8787 |
+| Frontends Acabamento, Pintura, Preparação, Montagem | Servidos por nginx no mini-PC |
+| Admin Dashboard (`/dashboard/`) | Servido por nginx no mini-PC |
+| **Frontend Estofagem** | Ainda em GitHub Pages |
+| **Backend Estofagem** | Ainda em Render (`https://registo-horas.onrender.com`) — única secção por migrar |
+
+A base de dados (Notion) é partilhada — o dashboard lê tudo, independentemente de onde o registo foi escrito.
+
+### 🌿 Convenção de branches
+
+| Branch | Para onde aponta | Documento |
+|---|---|---|
+| `main` | Mini-PC CT100 (configs → `http://192.168.1.103/...`) | `docs/DEPLOY_LOCAL.md` |
+| `dashboard-dev` | Render + GitHub Pages (configs → `https://registo-horas.onrender.com/...`) | `docs/DEPLOY_RENDER.md` |
+
+Os branches devem ter código idêntico em `server/`, `dashboard/`, `frontend/HTML/` e `frontend/CSS/`. Só diferem nos URLs dentro de `frontend/JS/config/*.config.js` e `dashboard/js/api.js`. Quando se faz uma alteração em `main` que afeta esses dois deploys, **é preciso fazer merge para `dashboard-dev`** e restaurar os URLs Render — o processo está em `docs/DEPLOY_RENDER.md`.
+
+📄 Ver `docs/NEXT_STEPS.md` para o trabalho que ficou planeado e que ainda não foi feito.
 
 ---
 
@@ -25,13 +46,17 @@ Backend atual em produção: `https://registo-horas.onrender.com`
 ## 🧱 Arquitetura
 
 ```plaintext
-iPad 2 (Safari 9) 
-   ↓ (JS puro + fila offline via localStorage)
-GitHub Pages (Frontend)
-   ↓ (POST com JSON urlencoded)
-Node.js Backend (server/index.js)
+Tablets em fábrica (iPad 2 + Android 7")
+   ↓ (JS puro + XHR + fila offline via localStorage)
+Frontend estático
+   ├─ Acabamento, Pintura, Preparação, Montagem → nginx no mini-PC (192.168.1.103)
+   └─ Estofagem                                  → GitHub Pages (legado)
+   ↓ (POST application/x-www-form-urlencoded, data=<json>)
+Backend Node.js (server/index.js, Express)
+   ├─ Mini-PC (CT100 Proxmox): systemd registo-backend, nginx :80 → :8787
+   └─ Render (apenas /estofagem)
    ↓
-Notion (Base de dados)
+Notion (Base de dados única, partilhada)
 
 Endpoints relevantes (backend):
 - `GET /health` – status/CORS configurado
@@ -180,10 +205,14 @@ Config do frontend (Estofagem):
 - [x] Estofagem - Tempo (com offline queue)
 - [x] Estofagem - Registos Acab. (seleção de colaboradores)
 - [x] Pintura (quantidade + tempo)
-- [x] Preparação de Madeiras (tempo por OF)
+- [x] Preparação de Madeiras (tempo por OF, multi-OF)
+- [x] Montagem (configuração completa)
+- [x] Dashboard interativo com filtros e KPIs
+- [x] Vista "Comparar Funcionários" (Maio 2026)
+- [x] Migração Acabamento/Pintura/Preparação/Montagem para mini-PC local (CT100)
+- [ ] Migrar Estofagem para o mini-PC (única secção ainda em Render)
+- [ ] Mitigação de turnos duplicados (Acabamento/Lixagem) — ver `docs/NEXT_STEPS.md`
 - [ ] Costura (adicionar quantidades por tipo de peça)
-- [ ] Montagem (configuração completa)
-- [ ] Dashboard interativo com filtros e KPIs
 - [ ] Sincronização com ERP
 
 ---
@@ -208,21 +237,23 @@ Inclui:
 
 ---
 
-## 📊 New Interactive Dashboard
+## 📊 Dashboard interativo
 
-Accessible at: `/dashboard/` (e.g., `https://cifcoelho.github.io/registo-horas/dashboard/`)
+URL em produção: **http://192.168.1.103/dashboard/** (LAN da fábrica). Login com credenciais definidas em `DASHBOARD_USER` / `DASHBOARD_PASS` no `.env` do backend.
 
-**Features:**
-- **Real-time Active Workers:** See who is working and on which OF.
-- **Performance Analytics:** Annual hours, units produced, and productivity rates.
-- **OF Progress Tracking:** Visual breakdown of hours per section (Acabamento/Estofagem).
-- **Cost Management:** Admin interface to manage employee hourly costs.
-- **Deep Linking:** Share URLs like `.../dashboard/?of=83` or `.../dashboard/?employee=Cristina`.
+**Views:**
+- **Visão Geral** — trabalhadores ativos em tempo real (poll 30s), KPIs do ano (horas totais, ativos agora, última OF Estofagem fechada, custo total estimado), gráficos top-10 Acabamento/Estofagem, progresso por OF, evolução mensal.
+- **Funcionários** — grelha pesquisável com horas, custo e secções por funcionário.
+- **Comparação** — escolher 1 a 4 funcionários e um mês; KPIs lado-a-lado, gráfico de horas por secção, linha de horas por dia, tabela combinada cor-coordenada.
+- **Ordens de Fabrico** — tabela de OFs com horas por secção, custo estimado, e detalhe drill-down por OF.
+- **Gestão de Custos** — CRUD do custo/hora por funcionário + estatística de horas de aquecimento (secção Pintura).
 
-**Setup:**
-1. Ensure `CUSTO_FUNCIONARIOS_DB_ID` is set in Render Environment Variables.
-2. Dashboard is statically served via GitHub Pages.
-3. Protected by simple client-side authentication (SessionStorage).
+**Deep links:** `?of=123`, `?employee=Cristina`, `?view=comparacao`.
+
+**Setup do backend para o dashboard:**
+- `CUSTO_FUNCIONARIOS_DB_ID`, `OFS_DB_ID` no `.env` do `registo-backend`.
+- `DASHBOARD_USER` / `DASHBOARD_PASS` para autenticação (validada server-side em `POST /api/dashboard/login`).
+- Cache em memória com TTLs por endpoint + fallback stale quando o Notion falha.
 
 ---
 
