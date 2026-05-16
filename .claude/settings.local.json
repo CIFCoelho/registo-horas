@@ -13,7 +13,13 @@
       "Bash(ls:*)",
       "Bash(wc:*)",
       "Bash(git -C /Users/franciscocoelho/code/pixel-compile/registo-horas log --oneline -10)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git *)",
+      "Read(//Users/franciscocoelho/**)",
+      "Read(//Users/franciscocoelho/.ssh/**)",
+      "Bash(node --check /Users/franciscocoelho/code/registo-horas/server/index.js)",
+      "Bash(node --check /Users/franciscocoelho/code/registo-horas/dashboard/js/main.js)",
+      "Bash(node --check /Users/franciscocoelho/code/registo-horas/dashboard/js/charts.js)"
     ],
     "deny": [],
     "ask": []

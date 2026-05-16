@@ -800,6 +800,17 @@ app.get('/api/dashboard/employees', async (req, res) => {
 
     // Process data into summary stats
     const employeeStats = {};
+    const estofagemOFsByEmployee = {}; // name -> Set of OF numbers touched in Estofagem
+
+    const ensureEmployee = (name) => {
+      if (!employeeStats[name]) employeeStats[name] = {
+        name, hours: 0,
+        units: 0, unitsAcabamento: 0,
+        ofsEstofagem: 0,
+        cost: 0, section: {}
+      };
+      return employeeStats[name];
+    };
 
     const processShift = (page, section) => {
       const name = page.properties?.['Funcionário']?.title?.[0]?.plain_text?.trim();
@@ -808,10 +819,19 @@ app.get('/api/dashboard/employees', async (req, res) => {
       const start = new Date(page.properties?.['Início do Turno']?.date?.start);
       const end = new Date(page.properties?.['Final do Turno']?.date?.start);
       const hours = (end - start) / (1000 * 60 * 60);
+      if (!isFinite(hours) || hours < 0) return;
 
-      if (!employeeStats[name]) employeeStats[name] = { name, hours: 0, units: 0, cost: 0, section: {} };
-      employeeStats[name].hours += hours;
-      employeeStats[name].section[section] = (employeeStats[name].section[section] || 0) + hours;
+      const emp = ensureEmployee(name);
+      emp.hours += hours;
+      emp.section[section] = (emp.section[section] || 0) + hours;
+
+      if (section === 'Estofagem') {
+        const of = page.properties?.['Ordem de Fabrico']?.number;
+        if (of !== null && of !== undefined) {
+          if (!estofagemOFsByEmployee[name]) estofagemOFsByEmployee[name] = new Set();
+          estofagemOFsByEmployee[name].add(of);
+        }
+      }
     };
 
     acabamentoShifts.forEach(p => processShift(p, 'Acabamento'));
@@ -820,35 +840,32 @@ app.get('/api/dashboard/employees', async (req, res) => {
     preparacaoShifts.forEach(p => processShift(p, 'Preparação'));
     montagemShifts.forEach(p => processShift(p, 'Montagem'));
 
+    // Units come from Estofagem - Registos Acab. (Cru/TP finishing operations).
+    // Both Cru and TP are Acabamento-section work by nature, so credits go only to unitsAcabamento.
     units.forEach(page => {
       const cru = page.properties?.[ESTOFAGEM_REGISTOS_PROPS.cru]?.rich_text?.[0]?.plain_text || '';
       const tp = page.properties?.[ESTOFAGEM_REGISTOS_PROPS.tp]?.rich_text?.[0]?.plain_text || '';
 
-      // Split comma separated names
       const creditUnit = (field) => {
         if (!field) return;
         field.split(',').forEach(rawName => {
           const name = rawName.trim();
           if (!name) return;
-          if (!employeeStats[name]) employeeStats[name] = {
-            name, hours: 0, units: 0,
-            unitsAcabamento: 0, unitsEstofagem: 0,
-            cost: 0, section: {}
-          };
-          employeeStats[name].units += 1;
-
-          // Credit to section based on where the employee primarily works (or has hours)
-          if (employeeStats[name].section?.['Acabamento'] > 0) {
-            employeeStats[name].unitsAcabamento += 1;
-          }
-          if (employeeStats[name].section?.['Estofagem'] > 0) {
-            employeeStats[name].unitsEstofagem += 1;
-          }
+          const emp = ensureEmployee(name);
+          emp.units += 1;
+          emp.unitsAcabamento += 1;
         });
       };
 
       creditUnit(cru);
       creditUnit(tp);
+    });
+
+    // Finalise ofsEstofagem counts from the sets gathered above
+    Object.keys(estofagemOFsByEmployee).forEach(name => {
+      if (employeeStats[name]) {
+        employeeStats[name].ofsEstofagem = estofagemOFsByEmployee[name].size;
+      }
     });
 
     // Calculate monthly breakdown for trend charts
@@ -920,10 +937,13 @@ app.get('/api/dashboard/ofs', async (req, res) => {
     const startOfYear = new Date(year, 0, 1).toISOString();
     const endOfYear = new Date(year + 1, 0, 1).toISOString();
 
+    // Only completed shifts contribute hours to an OF; open shifts have duration 0
+    // and just create noise (OF rows with zero hours everywhere).
     const filter = {
       and: [
         { property: 'Início do Turno', date: { on_or_after: startOfYear } },
-        { property: 'Início do Turno', date: { before: endOfYear } }
+        { property: 'Início do Turno', date: { before: endOfYear } },
+        { property: 'Final do Turno', date: { is_not_empty: true } }
       ]
     };
 
@@ -1159,6 +1179,22 @@ app.get('/api/dashboard/of/:ofNumber', async (req, res) => {
       end: p.properties?.['Final do Turno']?.date?.start,
     });
 
+    // Preparação shifts may cover multiple OFs ("123, 456, 789"). Expose
+    // ofCount so the client can split hours evenly to match the aggregator.
+    const mapPreparacaoShift = (p) => {
+      const ofText = p.properties?.['Ordem de Fabrico']?.rich_text?.[0]?.plain_text || '';
+      const ofCount = ofText
+        ? ofText.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)).length
+        : 1;
+      return {
+        id: p.id,
+        funcionario: p.properties?.['Funcionário']?.title?.[0]?.plain_text,
+        start: p.properties?.['Início do Turno']?.date?.start,
+        end: p.properties?.['Final do Turno']?.date?.start,
+        ofCount: ofCount || 1
+      };
+    };
+
     res.json({
       ok: true,
       data: {
@@ -1166,7 +1202,7 @@ app.get('/api/dashboard/of/:ofNumber', async (req, res) => {
         acabamento: acabamentoShifts.map(mapShift),
         estofagem: estofagemShifts.map(mapShift),
         pintura: pinturaShifts.map(mapShift),
-        preparacao: preparacaoShifts.map(mapShift),
+        preparacao: preparacaoShifts.map(mapPreparacaoShift),
         montagem: montagemShifts.map(mapShift),
         units: units.map(p => ({
           id: p.id,
@@ -1193,63 +1229,52 @@ app.get('/api/dashboard/employee/:name', async (req, res) => {
     const startOfYear = new Date(year, 0, 1).toISOString();
     const endOfYear = new Date(year + 1, 0, 1).toISOString();
 
-    const filter = {
-      and: [
-        { property: 'Funcionário', title: { equals: name } },
-        { property: 'Início do Turno', date: { on_or_after: startOfYear } },
-        { property: 'Início do Turno', date: { before: endOfYear } }
-      ]
-    };
+    // Each section may have slightly different property names after a Notion
+    // workspace migration — resolve per-DB and build the filter accordingly.
+    const sections = [
+      { dbId: ACABAMENTO_DB_ID,        label: 'Acabamento', textOF: false },
+      { dbId: ESTOFAGEM_TEMPO_DB_ID,   label: 'Estofagem',  textOF: false },
+      { dbId: PINTURA_DB_ID,           label: 'Pintura',    textOF: false },
+      { dbId: PREPARACAO_MADEIRAS_DB_ID, label: 'Preparação', textOF: true },
+      { dbId: MONTAGEM_DB_ID,          label: 'Montagem',   textOF: false }
+    ];
 
-    // Note: Units database structure usually has 'Cru Por:' and 'TP por:' as rich text with multiple names
-    // Filtering by exact match on those fields is hard with Notion API if they are comma separated string.
-    // For now we will return shift data which is the most reliable "Work History".
-    // Pulling all unit records just for one employee might be expensive if we can't filter server side easily.
-    // We'll skip unit details for this specific endpoint for now, or fetch all and filter (expensive).
-    // Let's stick to Shift History.
-
-    const [acabamentoShifts, estofagemShifts] = await Promise.all([
-      fetchAllPages(ACABAMENTO_DB_ID, filter),
-      fetchAllPages(ESTOFAGEM_TEMPO_DB_ID, filter)
-    ]);
-
-    const fetchSafe = async (dbId, f) => {
-      if (!dbId) return [];
-      try { return await fetchAllPages(dbId, f); } catch (e) {
-        console.warn('[dashboard/employee] failed:', e.message);
-        return [];
+    const fetched = await Promise.all(sections.map(async (s) => {
+      if (!s.dbId) return { ...s, shifts: [], props: SHIFT_PROP_FALLBACK };
+      try {
+        const props = await resolveDbProps(s.dbId);
+        const filter = {
+          and: [
+            { property: props.funcionario, title: { equals: name } },
+            { property: props.inicioTurno, date: { on_or_after: startOfYear } },
+            { property: props.inicioTurno, date: { before: endOfYear } }
+          ]
+        };
+        const shifts = await fetchAllPages(s.dbId, filter);
+        return { ...s, shifts, props };
+      } catch (e) {
+        console.warn(`[dashboard/employee] ${s.label} failed:`, e.message);
+        return { ...s, shifts: [], props: SHIFT_PROP_FALLBACK };
       }
+    }));
+
+    const formatShift = (p, props, section, textOF) => {
+      const ofProp = p.properties?.[props.of];
+      const of = textOF
+        ? (ofProp?.rich_text?.[0]?.plain_text || null)
+        : (ofProp?.number ?? null);
+      return {
+        id: p.id,
+        of,
+        start: p.properties?.[props.inicioTurno]?.date?.start,
+        end: p.properties?.[props.finalTurno]?.date?.start,
+        section
+      };
     };
 
-    const [pinturaShifts, preparacaoShifts, montagemShifts] = await Promise.all([
-      fetchSafe(PINTURA_DB_ID, filter),
-      fetchSafe(PREPARACAO_MADEIRAS_DB_ID, filter),
-      fetchSafe(MONTAGEM_DB_ID, filter)
-    ]);
-
-    const formatShift = (p, section) => ({
-      id: p.id,
-      of: p.properties?.['Ordem de Fabrico']?.number,
-      start: p.properties?.['Início do Turno']?.date?.start,
-      end: p.properties?.['Final do Turno']?.date?.start,
-      section
-    });
-
-    const formatShiftTextOF = (p, section) => ({
-      id: p.id,
-      of: p.properties?.['Ordem de Fabrico']?.rich_text?.[0]?.plain_text || null,
-      start: p.properties?.['Início do Turno']?.date?.start,
-      end: p.properties?.['Final do Turno']?.date?.start,
-      section
-    });
-
-    const shiftHistory = [
-      ...acabamentoShifts.map(p => formatShift(p, 'Acabamento')),
-      ...estofagemShifts.map(p => formatShift(p, 'Estofagem')),
-      ...pinturaShifts.map(p => formatShift(p, 'Pintura')),
-      ...preparacaoShifts.map(p => formatShiftTextOF(p, 'Preparação')),
-      ...montagemShifts.map(p => formatShift(p, 'Montagem'))
-    ].sort((a, b) => new Date(b.start) - new Date(a.start));
+    const shiftHistory = fetched
+      .flatMap(s => s.shifts.map(p => formatShift(p, s.props, s.label, s.textOF)))
+      .sort((a, b) => new Date(b.start) - new Date(a.start));
 
     res.json({
       ok: true,
@@ -1598,6 +1623,52 @@ function normalizeKey(str) {
   return String(str || '')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
+}
+
+// Cache resolved property names per database so the dashboard read paths
+// keep working after a Notion column rename (Funcionário → Colaborador, etc.).
+// The cache is process-lifetime; restart the service after a schema change.
+const dbPropsCache = new Map();
+const SHIFT_PROP_FALLBACK = {
+  funcionario: 'Funcionário',
+  of: 'Ordem de Fabrico',
+  inicioTurno: 'Início do Turno',
+  finalTurno: 'Final do Turno',
+  notas: 'Notas do Sistema'
+};
+
+async function resolveDbProps(dbId) {
+  if (!dbId) return SHIFT_PROP_FALLBACK;
+  if (dbPropsCache.has(dbId)) return dbPropsCache.get(dbId);
+  try {
+    const resp = await notionFetch(`https://api.notion.com/v1/databases/${dbId}`, { headers });
+    if (!resp.ok) {
+      console.warn(`[resolveDbProps] ${dbId} -> HTTP ${resp.status}; using fallback names`);
+      return SHIFT_PROP_FALLBACK;
+    }
+    const meta = await resp.json();
+    const lookup = {};
+    Object.keys(meta.properties || {}).forEach(n => { lookup[normalizeKey(n)] = n; });
+    const pick = (aliases) => {
+      for (const a of aliases) {
+        const found = lookup[normalizeKey(a)];
+        if (found) return found;
+      }
+      return aliases[0];
+    };
+    const resolved = {
+      funcionario: pick(PROPERTY_ALIASES.funcionario),
+      of: pick(PROPERTY_ALIASES.of),
+      inicioTurno: pick(PROPERTY_ALIASES.inicioTurno),
+      finalTurno: pick(PROPERTY_ALIASES.finalTurno),
+      notas: pick(PROPERTY_ALIASES.notas)
+    };
+    dbPropsCache.set(dbId, resolved);
+    return resolved;
+  } catch (e) {
+    console.warn(`[resolveDbProps] ${dbId} threw ${e.message}; using fallback names`);
+    return SHIFT_PROP_FALLBACK;
+  }
 }
 
 // Flexible property name resolver - tries multiple variations
