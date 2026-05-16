@@ -40,7 +40,7 @@ const DashboardCharts = {
                     },
                     {
                         label: 'Unidades',
-                        data: sorted.map(d => d.unitsAcabamento || d.units || 0),
+                        data: sorted.map(d => d.unitsAcabamento || 0),
                         type: 'line',
                         borderColor: '#2c3e50',
                         pointBackgroundColor: '#2c3e50',
@@ -54,7 +54,7 @@ const DashboardCharts = {
                 maintainAspectRatio: false,
                 scales: {
                     y: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Horas' } },
-                    y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Unidades' }, grid: { drawOnChartArea: false } }
+                    y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Unidades' }, grid: { drawOnChartArea: false }, ticks: { precision: 0 } }
                 },
                 onClick: (e, elements) => {
                     if (elements.length > 0) {
@@ -87,8 +87,8 @@ const DashboardCharts = {
                         order: 2
                     },
                     {
-                        label: 'Unidades',
-                        data: sorted.map(d => d.unitsEstofagem || d.units || 0),
+                        label: 'OFs distintas',
+                        data: sorted.map(d => d.ofsEstofagem || 0),
                         type: 'line',
                         borderColor: '#E6692D',
                         pointBackgroundColor: '#E6692D',
@@ -102,7 +102,7 @@ const DashboardCharts = {
                 maintainAspectRatio: false,
                 scales: {
                     y: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Horas' } },
-                    y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Unidades' }, grid: { drawOnChartArea: false } }
+                    y1: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'OFs distintas' }, grid: { drawOnChartArea: false }, ticks: { precision: 0 } }
                 },
                 onClick: (e, elements) => {
                     if (elements.length > 0) {
